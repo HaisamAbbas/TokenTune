@@ -1,7 +1,32 @@
 import uuid
 from datetime import datetime
+from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
+
+
+class TelemetryImportRequest(BaseModel):
+    from_ts: datetime
+    to_ts: datetime
+
+
+class TelemetryImportResult(BaseModel):
+    traces_created: int
+    llm_calls_created: int
+
+
+class CostBucket(BaseModel):
+    bucket: str | None
+    total_cost: Decimal | None
+    total_input_tokens: int
+    total_output_tokens: int
+    total_tokens: int
+    avg_latency_ms: float | None
+    request_count: int
+
+
+GroupBy = Literal["day", "model", "workflow"]
 
 
 class TraceRead(BaseModel):

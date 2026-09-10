@@ -7,6 +7,8 @@ from pydantic import BaseModel, ConfigDict
 class ProjectCreate(BaseModel):
     name: str
     slug: str
+    langfuse_public_key: str | None = None
+    langfuse_secret_key: str | None = None
 
 
 class ProjectRead(BaseModel):

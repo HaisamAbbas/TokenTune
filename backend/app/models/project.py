@@ -16,6 +16,8 @@ class Project(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
+    langfuse_public_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    langfuse_secret_key: Mapped[str | None] = mapped_column(String, nullable=True)
 
     environments: Mapped[list["Environment"]] = relationship(back_populates="project")
 
