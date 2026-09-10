@@ -41,6 +41,18 @@ class TraceRead(BaseModel):
     metadata_: dict | None
 
 
+class RetrievalStepRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    trace_id: uuid.UUID
+    top_k: int | None
+    chunk_count: int | None
+    retrieved_tokens: int | None
+    timestamp: datetime
+    metadata_: dict | None
+
+
 class LLMCallRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

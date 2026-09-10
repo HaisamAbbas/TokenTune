@@ -5,7 +5,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
+from app.models.optimization import OptimizationRecommendation
 from app.models.project import Project
+from app.schemas.optimization import AnalyzeRequest, AnalyzeResult, OptimizationRecommendationRead
 from app.schemas.project import ProjectCreate, ProjectRead
 from app.schemas.telemetry import (
     CostBucket,
@@ -13,6 +15,7 @@ from app.schemas.telemetry import (
     TelemetryImportRequest,
     TelemetryImportResult,
 )
+from app.services.analysis import run_analysis
 from app.services.cost import aggregate_cost
 from app.services.ingestion import import_telemetry
 
@@ -78,3 +81,32 @@ def get_project_cost(
 ) -> list[CostBucket]:
     _get_project_or_404(project_id, db)
     return aggregate_cost(db, project_id, from_ts, to_ts, group_by)
+
+
+@router.post("/{project_id}/optimizations/analyze", response_model=AnalyzeResult)
+def analyze_project_optimizations(
+    project_id: uuid.UUID,
+    payload: AnalyzeRequest,
+    db: Session = Depends(get_db),
+) -> AnalyzeResult:
+    project = _get_project_or_404(project_id, db)
+    created = run_analysis(project, payload.from_ts, payload.to_ts, db)
+    return AnalyzeResult(
+        recommendations_created=len(created),
+        recommendations=[OptimizationRecommendationRead.model_validate(row) for row in created],
+    )
+
+
+@router.get("/{project_id}/optimizations", response_model=list[OptimizationRecommendationRead])
+def list_project_optimizations(
+    project_id: uuid.UUID,
+    status: str | None = Query(None),
+    db: Session = Depends(get_db),
+) -> list[OptimizationRecommendation]:
+    _get_project_or_404(project_id, db)
+    query = db.query(OptimizationRecommendation).filter(
+        OptimizationRecommendation.project_id == project_id
+    )
+    if status is not None:
+        query = query.filter(OptimizationRecommendation.status == status)
+    return query.all()

@@ -13,6 +13,13 @@ def _load_pricing_table() -> dict[str, dict[str, float]]:
         return yaml.safe_load(f) or {}
 
 
+def get_pricing_table() -> dict[str, dict[str, float]]:
+    """Public accessor for the pricing table, for callers outside this module
+    (e.g. the model-cost optimization rule) that need to compare rates across
+    models rather than estimate a single call's cost."""
+    return _load_pricing_table()
+
+
 def estimate_cost(model: str, input_tokens: int, output_tokens: int) -> Decimal | None:
     table = _load_pricing_table()
     rates = table.get(model)
@@ -20,4 +27,6 @@ def estimate_cost(model: str, input_tokens: int, output_tokens: int) -> Decimal 
         return None
     input_rate = Decimal(str(rates["input_per_1k"]))
     output_rate = Decimal(str(rates["output_per_1k"]))
-    return (Decimal(input_tokens) / 1000) * input_rate + (Decimal(output_tokens) / 1000) * output_rate
+    return (Decimal(input_tokens) / 1000) * input_rate + (
+        Decimal(output_tokens) / 1000
+    ) * output_rate

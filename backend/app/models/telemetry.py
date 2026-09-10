@@ -40,3 +40,18 @@ class LLMCall(Base):
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
 
     trace: Mapped["Trace"] = relationship(back_populates="llm_calls")
+
+
+class RetrievalStep(Base):
+    __tablename__ = "retrieval_steps"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    trace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("traces.id"), nullable=False)
+    top_k: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    chunk_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    retrieved_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    metadata_: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
+
+    # TODO: Phase 4 - map RetrievalStep from LangfuseAdapter's "retriever"-type
+    # observations. Not wired into the adapter in Phase 3 per the agreed scope.
