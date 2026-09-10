@@ -1,0 +1,3 @@
+# Normalize telemetry into our own shape instead of storing Langfuse's
+
+Langfuse's v2 observations API has its own field-grouping and naming (core/basic/usage/model/metrics groups, `traceId`, `totalCost`, etc.), and it's already deprecating its v1 shape. Rather than storing that shape directly, the `LangfuseAdapter` converts every observation into a `NormalizedTelemetryEvent` with our own field names before anything else touches it. This means a second telemetry source (or a Langfuse API version change) only requires a new/updated adapter, not changes to ingestion, cost aggregation, or the rule engine.
