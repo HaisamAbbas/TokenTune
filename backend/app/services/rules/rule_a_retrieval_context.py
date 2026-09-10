@@ -1,5 +1,4 @@
-from app.schemas.optimization import OptimizationRecommendationCreate
-from app.services.rules.base import MIN_SAMPLE_SIZE, Rule, WorkflowStats, scaled_confidence
+from app.services.rules.base import Rule, RuleDetection, WorkflowStats
 
 # If retrieved-context tokens make up more than this share of the average
 # input prompt, the retrieval step is likely over-fetching.
@@ -8,9 +7,7 @@ TOP_K_REDUCTION_FACTOR = 0.4
 
 
 class ExcessiveRetrievalContextRule(Rule):
-    def evaluate(self, stats: WorkflowStats) -> OptimizationRecommendationCreate | None:
-        if stats.trace_count < MIN_SAMPLE_SIZE:
-            return None
+    def evaluate(self, stats: WorkflowStats) -> RuleDetection | None:
         if not stats.avg_retrieval_tokens or not stats.avg_input_tokens:
             return None
         if stats.avg_top_k is None:
@@ -25,10 +22,7 @@ class ExcessiveRetrievalContextRule(Rule):
         if proposed_top_k >= current_top_k:
             return None
 
-        return OptimizationRecommendationCreate(
-            project_id=stats.sample_project_id,
-            workflow=stats.workflow,
-            environment_id=stats.environment_id,
+        return RuleDetection(
             rule_name="excessive_retrieval_context",
             reason=(
                 f"Retrieved context averages {stats.avg_retrieval_tokens:.0f} tokens, "
@@ -44,5 +38,4 @@ class ExcessiveRetrievalContextRule(Rule):
                     "quality and cost against the current baseline."
                 )
             },
-            confidence=scaled_confidence(stats.trace_count),
         )

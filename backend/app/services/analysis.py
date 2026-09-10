@@ -67,15 +67,26 @@ def _build_workflow_stats(
     )
     model_usage = {model: count for model, count in model_rows}
 
-    retrieval_row = (
+    # A trace can have multiple retrieval steps (e.g. multi-hop retrieval).
+    # Averaging directly across RetrievalStep rows would understate such
+    # workflows by diluting their per-trace totals across more rows, so sum
+    # retrieval tokens/top_k per trace first, then average those per-trace
+    # totals across traces.
+    per_trace_retrieval = (
         db.query(
-            func.avg(RetrievalStep.retrieved_tokens).label("avg_retrieved_tokens"),
-            func.avg(RetrievalStep.top_k).label("avg_top_k"),
+            RetrievalStep.trace_id.label("trace_id"),
+            func.sum(RetrievalStep.retrieved_tokens).label("trace_retrieved_tokens"),
+            func.sum(RetrievalStep.top_k).label("trace_top_k"),
         )
         .join(Trace, RetrievalStep.trace_id == Trace.id)
         .filter(*trace_filter)
-        .one()
+        .group_by(RetrievalStep.trace_id)
+        .subquery()
     )
+    retrieval_row = db.query(
+        func.avg(per_trace_retrieval.c.trace_retrieved_tokens).label("avg_retrieved_tokens"),
+        func.avg(per_trace_retrieval.c.trace_top_k).label("avg_top_k"),
+    ).one()
     avg_retrieval_tokens = (
         float(retrieval_row.avg_retrieved_tokens)
         if retrieval_row.avg_retrieved_tokens is not None
@@ -163,7 +174,9 @@ def run_analysis(
             db.add(row)
             created.append(row)
 
+    # No db.refresh() here: id and created_at are populated client-side by
+    # Python defaults (uuid.uuid4 / datetime.now(UTC)) at flush time, not by
+    # any server_default, so the in-memory rows are already fully populated
+    # after commit.
     db.commit()
-    for row in created:
-        db.refresh(row)
     return created

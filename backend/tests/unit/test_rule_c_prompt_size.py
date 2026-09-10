@@ -1,6 +1,6 @@
 import uuid
 
-from app.services.rules.base import MIN_SAMPLE_SIZE, WorkflowStats
+from app.services.rules.base import WorkflowStats
 from app.services.rules.rule_c_prompt_size import PromptOptimizationRule
 
 RULE = PromptOptimizationRule()
@@ -33,9 +33,4 @@ def test_fires_when_prompt_is_large_and_repeated() -> None:
 
 def test_does_not_fire_below_prompt_size_threshold() -> None:
     stats = _stats(avg_input_tokens=1000.0)
-    assert RULE.evaluate(stats) is None
-
-
-def test_does_not_fire_below_min_sample_size() -> None:
-    stats = _stats(trace_count=MIN_SAMPLE_SIZE - 1, avg_input_tokens=5000.0)
     assert RULE.evaluate(stats) is None

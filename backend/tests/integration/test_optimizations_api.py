@@ -1,11 +1,13 @@
 import uuid
 from datetime import UTC, datetime
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.models.project import Environment
 from app.models.telemetry import LLMCall, RetrievalStep, Trace
+from app.services.rules import rule_b_model_cost
 
 FROM_TS = "2026-01-01T00:00:00Z"
 TO_TS = "2026-02-01T00:00:00Z"
@@ -171,3 +173,68 @@ def test_analyze_separates_recommendations_by_environment(
 
     assert any(r["environment_id"] == str(env_hot.id) for r in retrieval_recs)
     assert all(r["environment_id"] != str(env_cold.id) for r in retrieval_recs)
+
+
+def test_analyze_ignores_malformed_pricing_entry(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A malformed/partial pricing-table entry (missing a required key)
+    should be skipped by the model-cost rule, not blow up /analyze."""
+    table = {
+        "gpt-4o": {"input_per_1k": 0.0025, "output_per_1k": 0.01},
+        "gpt-4o-mini": {"input_per_1k": 0.00015, "output_per_1k": 0.0006},
+        # Malformed: missing output_per_1k.
+        "broken-model": {"input_per_1k": 0.0001},
+    }
+    monkeypatch.setattr(rule_b_model_cost, "get_pricing_table", lambda: table)
+
+    project = _create_project(client, slug="malformed-pricing-project")
+    project_uuid = uuid.UUID(project["id"])
+    for i in range(25):
+        ts = datetime(2026, 1, 15, 12, 0, tzinfo=UTC)
+        trace = Trace(
+            project_id=project_uuid,
+            external_trace_id=f"trace-cost-{i}",
+            workflow="summarization",
+            timestamp=ts,
+        )
+        db_session.add(trace)
+        db_session.flush()
+        db_session.add(
+            LLMCall(
+                trace_id=trace.id,
+                span_id=f"span-cost-{i}",
+                model="gpt-4o",
+                provider="openai",
+                input_tokens=1000,
+                output_tokens=200,
+                total_tokens=1200,
+                cost=0.01,
+                latency_ms=200.0,
+                timestamp=ts,
+            )
+        )
+    db_session.commit()
+
+    response = client.post(
+        f"/projects/{project['id']}/optimizations/analyze",
+        json={"from_ts": FROM_TS, "to_ts": TO_TS},
+    )
+    assert response.status_code == 200
+    recommendations = response.json()["recommendations"]
+    cost_recs = [r for r in recommendations if r["rule_name"] == "model_cost_optimization"]
+    assert len(cost_recs) == 1
+    assert cost_recs[0]["proposed_config"]["model"] == "gpt-4o-mini"
+
+
+def test_analyze_accepts_naive_datetimes_as_utc(client: TestClient, db_session: Session) -> None:
+    project = _create_project(client, slug="naive-datetime-project")
+    _seed_excessive_retrieval_traces(db_session, project["id"])
+
+    # No trailing "Z" / offset - a caller that forgot to add a timezone.
+    response = client.post(
+        f"/projects/{project['id']}/optimizations/analyze",
+        json={"from_ts": "2026-01-01T00:00:00", "to_ts": "2026-02-01T00:00:00"},
+    )
+    assert response.status_code == 200
+    assert response.json()["recommendations_created"] >= 1

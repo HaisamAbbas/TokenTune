@@ -1,5 +1,4 @@
-from app.schemas.optimization import OptimizationRecommendationCreate
-from app.services.rules.base import MIN_SAMPLE_SIZE, Rule, WorkflowStats, scaled_confidence
+from app.services.rules.base import Rule, RuleDetection, WorkflowStats
 
 # Above this average number of LLM calls per trace, a workflow likely has
 # redundant or consolidatable generation steps. Detection-only: we flag the
@@ -8,16 +7,11 @@ CALLS_PER_TRACE_THRESHOLD = 1.5
 
 
 class UnnecessaryGenerationCallsRule(Rule):
-    def evaluate(self, stats: WorkflowStats) -> OptimizationRecommendationCreate | None:
-        if stats.trace_count < MIN_SAMPLE_SIZE:
-            return None
+    def evaluate(self, stats: WorkflowStats) -> RuleDetection | None:
         if stats.avg_calls_per_trace <= CALLS_PER_TRACE_THRESHOLD:
             return None
 
-        return OptimizationRecommendationCreate(
-            project_id=stats.sample_project_id,
-            workflow=stats.workflow,
-            environment_id=stats.environment_id,
+        return RuleDetection(
             rule_name="unnecessary_generation_calls",
             reason=(
                 f"Workflow makes ~{stats.avg_calls_per_trace:.1f} LLM calls per "
@@ -35,5 +29,4 @@ class UnnecessaryGenerationCallsRule(Rule):
                     "workflow to identify which LLM call steps are redundant."
                 )
             },
-            confidence=scaled_confidence(stats.trace_count),
         )

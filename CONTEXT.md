@@ -23,7 +23,7 @@ One execution of a Workflow, imported from an external observability source. May
 One generation request within a Trace — a single call to a model that produces tokens and incurs cost. Does not represent retrieval or other non-generation steps; see Retrieval Step.
 
 **Retrieval Step**:
-One retrieval action within a Trace (e.g. `retriever.search()`) — modeled explicitly (top_k used, chunk count, retrieved token count) rather than inferred from an LLM Call's prompt size, so that recommendations like "reduce top_k" are based on real retrieval numbers, not guesses. Not yet implemented (Phase 3).
+One retrieval action within a Trace (e.g. `retriever.search()`) — modeled explicitly (top_k used, chunk count, retrieved token count) rather than inferred from an LLM Call's prompt size, so that recommendations like "reduce top_k" are based on real retrieval numbers, not guesses. Model and migration exist as of Phase 3; nothing populates it from real telemetry yet (`LangfuseAdapter` does not map retrieval observations into it) — that adapter work is Phase 4.
 _Avoid_: Search, Context fetch
 
 **Cost**:
@@ -36,7 +36,7 @@ The platform's own representation of one observability event (an LLM Call or Ret
 A component that fetches from one external observability source (currently Langfuse) and converts its data into Normalized Telemetry Events. Designed so a second source can be added without changing anything downstream.
 
 **Optimization Recommendation**:
-A rule engine's proposed change to a Workflow's configuration (model, top_k, prompt, or max_tokens), backed by a reason, current/proposed configuration, estimated cost impact, and confidence. Not yet implemented (Phase 3).
+A rule engine's proposed change to a Workflow's configuration (model, top_k, prompt, or max_tokens), backed by a reason, current/proposed configuration, estimated cost impact, and confidence. Implemented in Phase 3.
 
 **Experiment**:
 A controlled run of a Workflow under an alternative configuration, compared against the same Workflow's baseline configuration on the same Evaluation Dataset. Never mutates production configuration. Not yet implemented (Phase 4).

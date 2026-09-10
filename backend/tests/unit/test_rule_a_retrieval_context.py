@@ -1,6 +1,6 @@
 import uuid
 
-from app.services.rules.base import MIN_SAMPLE_SIZE, WorkflowStats
+from app.services.rules.base import WorkflowStats
 from app.services.rules.rule_a_retrieval_context import ExcessiveRetrievalContextRule
 
 RULE = ExcessiveRetrievalContextRule()
@@ -34,9 +34,4 @@ def test_fires_when_retrieval_share_exceeds_threshold() -> None:
 
 def test_does_not_fire_below_share_threshold() -> None:
     stats = _stats(avg_retrieval_tokens=200.0, avg_input_tokens=1000.0)  # 20% share
-    assert RULE.evaluate(stats) is None
-
-
-def test_does_not_fire_below_min_sample_size() -> None:
-    stats = _stats(trace_count=MIN_SAMPLE_SIZE - 1, avg_retrieval_tokens=800.0)
     assert RULE.evaluate(stats) is None

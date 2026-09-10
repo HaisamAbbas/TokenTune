@@ -1,8 +1,8 @@
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 RuleName = Literal[
     "excessive_retrieval_context",
@@ -47,6 +47,16 @@ class OptimizationRecommendationRead(BaseModel):
 class AnalyzeRequest(BaseModel):
     from_ts: datetime
     to_ts: datetime
+
+    @field_validator("from_ts", "to_ts")
+    @classmethod
+    def _coerce_naive_to_utc(cls, value: datetime) -> datetime:
+        # Trace.timestamp is stored tz-aware; callers who forget to add a
+        # timezone almost always mean UTC, so coerce rather than reject -
+        # least surprising for API callers.
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value
 
 
 class AnalyzeResult(BaseModel):

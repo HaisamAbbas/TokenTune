@@ -1,6 +1,6 @@
 import uuid
 
-from app.services.rules.base import MIN_SAMPLE_SIZE, WorkflowStats
+from app.services.rules.base import WorkflowStats
 from app.services.rules.rule_d_unnecessary_calls import UnnecessaryGenerationCallsRule
 
 RULE = UnnecessaryGenerationCallsRule()
@@ -33,9 +33,4 @@ def test_fires_when_calls_per_trace_exceeds_threshold() -> None:
 
 def test_does_not_fire_below_calls_per_trace_threshold() -> None:
     stats = _stats(avg_calls_per_trace=1.2)
-    assert RULE.evaluate(stats) is None
-
-
-def test_does_not_fire_below_min_sample_size() -> None:
-    stats = _stats(trace_count=MIN_SAMPLE_SIZE - 1, avg_calls_per_trace=3.0)
     assert RULE.evaluate(stats) is None

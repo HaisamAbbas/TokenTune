@@ -1,14 +1,24 @@
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class TelemetryImportRequest(BaseModel):
     from_ts: datetime
     to_ts: datetime
+
+    @field_validator("from_ts", "to_ts")
+    @classmethod
+    def _coerce_naive_to_utc(cls, value: datetime) -> datetime:
+        # Trace.timestamp is stored tz-aware; callers who forget to add a
+        # timezone almost always mean UTC, so coerce rather than reject -
+        # least surprising for API callers.
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value
 
 
 class TelemetryImportResult(BaseModel):

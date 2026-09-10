@@ -1,13 +1,16 @@
 import uuid
 from abc import ABC, abstractmethod
+from typing import Any
 
 from pydantic import BaseModel
 
-from app.schemas.optimization import OptimizationRecommendationCreate
+from app.schemas.optimization import RuleName
 
 # Rules only fire once a workflow/environment group has accumulated at least
 # this many traces in the analysis window - below this, stats are too noisy
-# to act on.
+# to act on. Enforced once, by RuleEngine.run(), before any rule's evaluate()
+# is called - individual rules can assume they only ever see sufficient
+# sample sizes.
 MIN_SAMPLE_SIZE = 20
 
 
@@ -32,11 +35,25 @@ class WorkflowStats(BaseModel):
     avg_calls_per_trace: float
 
 
+class RuleDetection(BaseModel):
+    """What a single rule contributes: its detection logic and the proposed
+    change. Everything that is the same for every rule - the
+    project_id/workflow/environment_id passthrough and the confidence score -
+    is stamped on by RuleEngine.run(), not by the rule itself."""
+
+    rule_name: RuleName
+    reason: str
+    current_config: dict[str, Any]
+    proposed_config: dict[str, Any]
+    estimated_cost_impact: str
+    required_experiment: dict[str, Any]
+
+
 class Rule(ABC):
     """A single optimization rule: inspects aggregated WorkflowStats for one
-    (project_id, workflow, environment_id) group and optionally proposes a
-    recommendation. Returns a schema object only - persistence is the caller's
-    responsibility."""
+    (project_id, workflow, environment_id) group - already known to meet
+    MIN_SAMPLE_SIZE - and optionally proposes a detection. Returns a schema
+    object only - persistence is the caller's responsibility."""
 
     @abstractmethod
-    def evaluate(self, stats: WorkflowStats) -> OptimizationRecommendationCreate | None: ...
+    def evaluate(self, stats: WorkflowStats) -> RuleDetection | None: ...
