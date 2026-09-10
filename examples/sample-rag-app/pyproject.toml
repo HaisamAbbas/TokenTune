@@ -6,11 +6,16 @@ readme = "README.md"
 authors = [{ name = "ajac-zero", email = "ajcardoza2000@gmail.com" }]
 requires-python = ">=3.13"
 dependencies = [
+  "ai-cost-optimizer-sdk",
   "fastapi[standard]>=0.115.8",
+  "langfuse>=2.53.9",
   "openai>=1.61.1",
   "pydantic-settings>=2.7.1",
   "qdrant-client[fastembed]>=1.13.2",
 ]
+
+[tool.uv.sources]
+ai-cost-optimizer-sdk = { path = "../../sdk" }
 
 [dependency-groups]
 dev = [

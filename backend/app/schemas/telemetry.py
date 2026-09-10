@@ -24,6 +24,7 @@ class TelemetryImportRequest(BaseModel):
 class TelemetryImportResult(BaseModel):
     traces_created: int
     llm_calls_created: int
+    retrieval_steps_created: int
 
 
 class CostBucket(BaseModel):

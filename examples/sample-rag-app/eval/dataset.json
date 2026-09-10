@@ -1,0 +1,125 @@
+{
+  "description": "Hand-written evaluation Q&A pairs grounded in examples/sample-rag-app/corpus/. Draft for human review before being treated as ground truth. No scoring/evaluator logic here by design -- see the platform's evaluation abstraction for that (separate future work).",
+  "items": [
+    {
+      "question": "Why isn't Mercury the hottest planet even though it's closest to the Sun?",
+      "expected_answer": "Mercury has almost no atmosphere to trap heat, so despite being closest to the Sun it is not the hottest planet -- that title belongs to Venus.",
+      "source_doc": "01-mercury.txt"
+    },
+    {
+      "question": "How long is Mercury's year, and what temperature range does it experience?",
+      "expected_answer": "Mercury completes an orbit every 88 Earth days. Daytime temperatures can reach 430 degrees Celsius, while nighttime temperatures drop to -180 degrees Celsius.",
+      "source_doc": "01-mercury.txt"
+    },
+    {
+      "question": "Why is a day on Venus longer than a year on Venus?",
+      "expected_answer": "Venus rotates so slowly, and in the opposite direction to most planets, that a single day on Venus (243 Earth days) is longer than its year (225 Earth days).",
+      "source_doc": "02-venus.txt"
+    },
+    {
+      "question": "What causes Venus's extreme surface temperature?",
+      "expected_answer": "A runaway greenhouse effect from its thick carbon dioxide atmosphere causes surface temperatures around 465 degrees Celsius, making Venus the hottest planet in the Solar System.",
+      "source_doc": "02-venus.txt"
+    },
+    {
+      "question": "What percentage of Earth's surface is covered by water, and what is Earth's atmosphere mostly made of?",
+      "expected_answer": "About 71 percent of Earth's surface is covered by water, and its atmosphere is mostly nitrogen and oxygen.",
+      "source_doc": "03-earth.txt"
+    },
+    {
+      "question": "What role does the Moon play for Earth?",
+      "expected_answer": "The Moon, Earth's one natural satellite, stabilizes the planet's axial tilt and drives ocean tides.",
+      "source_doc": "03-earth.txt"
+    },
+    {
+      "question": "Why is Mars called the Red Planet, and what is its largest volcano?",
+      "expected_answer": "Mars is called the Red Planet because of iron oxide on its surface. Its largest volcano is Olympus Mons, which stands about 22 kilometers high.",
+      "source_doc": "04-mars.txt"
+    },
+    {
+      "question": "What are the names of Mars's two moons?",
+      "expected_answer": "Mars has two small moons, Phobos and Deimos.",
+      "source_doc": "04-mars.txt"
+    },
+    {
+      "question": "What is Jupiter's Great Red Spot?",
+      "expected_answer": "The Great Red Spot is a giant storm on Jupiter that has raged for at least 350 years and is large enough to swallow Earth several times over.",
+      "source_doc": "05-jupiter.txt"
+    },
+    {
+      "question": "What are the four Galilean moons of Jupiter?",
+      "expected_answer": "The four Galilean moons of Jupiter are Io, Europa, Ganymede, and Callisto.",
+      "source_doc": "05-jupiter.txt"
+    },
+    {
+      "question": "Why is Saturn described as the least dense planet in the Solar System?",
+      "expected_answer": "Saturn is the least dense planet in the Solar System -- it would float in water if a bathtub large enough existed.",
+      "source_doc": "06-saturn.txt"
+    },
+    {
+      "question": "What is notable about Saturn's moon Titan?",
+      "expected_answer": "Titan has a thick atmosphere and lakes of liquid methane. Saturn has 146 confirmed moons in total.",
+      "source_doc": "06-saturn.txt"
+    },
+    {
+      "question": "What makes Uranus unique among the planets in terms of its rotation?",
+      "expected_answer": "Uranus rotates on its side, with an axial tilt of about 98 degrees, likely the result of an ancient collision.",
+      "source_doc": "07-uranus.txt"
+    },
+    {
+      "question": "Why does Uranus appear pale blue-green?",
+      "expected_answer": "Uranus appears pale blue-green because of methane in its atmosphere, which absorbs red light.",
+      "source_doc": "07-uranus.txt"
+    },
+    {
+      "question": "How was Neptune discovered?",
+      "expected_answer": "Neptune was the first planet located through mathematical prediction rather than direct observation, after astronomers noticed irregularities in Uranus's orbit.",
+      "source_doc": "08-neptune.txt"
+    },
+    {
+      "question": "What is unusual about Neptune's moon Triton?",
+      "expected_answer": "Triton, Neptune's largest moon, orbits backwards relative to Neptune's rotation.",
+      "source_doc": "08-neptune.txt"
+    },
+    {
+      "question": "How did the Moon likely form?",
+      "expected_answer": "The Moon likely formed roughly 4.5 billion years ago from debris left after a Mars-sized body collided with the early Earth.",
+      "source_doc": "09-moon.txt"
+    },
+    {
+      "question": "Who was the first person to walk on the Moon, and when?",
+      "expected_answer": "Neil Armstrong became the first person to walk on the Moon's surface when Apollo 11 landed the first humans there on July 20, 1969.",
+      "source_doc": "09-moon.txt"
+    },
+    {
+      "question": "How does the Sun generate its energy?",
+      "expected_answer": "The Sun generates energy through nuclear fusion in its core, converting hydrogen into helium.",
+      "source_doc": "10-sun.txt"
+    },
+    {
+      "question": "How long does light from the Sun take to reach Earth, and how much of the Solar System's mass does the Sun account for?",
+      "expected_answer": "Light from the Sun takes about 8 minutes and 20 seconds to reach Earth. The Sun accounts for about 99.86 percent of the Solar System's total mass.",
+      "source_doc": "10-sun.txt"
+    },
+    {
+      "question": "Where is the asteroid belt located, and what is its largest object?",
+      "expected_answer": "The asteroid belt is located between the orbits of Mars and Jupiter. Its largest object is the dwarf planet Ceres, which is large enough to be rounded by its own gravity.",
+      "source_doc": "11-asteroid-belt.txt"
+    },
+    {
+      "question": "Is the asteroid belt as densely packed as popular depictions suggest?",
+      "expected_answer": "No -- despite popular depictions, the asteroid belt is mostly empty space, and the average distance between objects is large enough that spacecraft have crossed it many times without incident.",
+      "source_doc": "11-asteroid-belt.txt"
+    },
+    {
+      "question": "When were the Voyager probes launched, and what is Voyager 2 the only spacecraft to have done?",
+      "expected_answer": "The Voyager program launched Voyager 1 and Voyager 2 in 1977. Voyager 2 remains the only spacecraft to have visited both Uranus and Neptune.",
+      "source_doc": "12-voyager.txt"
+    },
+    {
+      "question": "What does each Voyager probe carry, and what is its purpose?",
+      "expected_answer": "Each Voyager probe carries a Golden Record with sounds and images meant to represent life and culture on Earth, intended for any intelligent life that might find it.",
+      "source_doc": "12-voyager.txt"
+    }
+  ]
+}

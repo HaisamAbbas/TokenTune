@@ -47,11 +47,13 @@ class RetrievalStep(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     trace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("traces.id"), nullable=False)
+    span_id: Mapped[str | None] = mapped_column(String, nullable=True)
     top_k: Mapped[int | None] = mapped_column(Integer, nullable=True)
     chunk_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     retrieved_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
 
-    # TODO: Phase 4 - map RetrievalStep from LangfuseAdapter's "retriever"-type
-    # observations. Not wired into the adapter in Phase 3 per the agreed scope.
+    # Populated from LangfuseAdapter's "retriever"-type observations as of
+    # Phase 4 - see app.adapters.langfuse_adapter._normalize_retrieval and
+    # app.services.ingestion._upsert_retrieval_step.

@@ -5,6 +5,9 @@ description = "Lightweight SDK for connecting an AI application to the AI Cost O
 requires-python = ">=3.12"
 dependencies = ["pydantic>=2.9"]
 
+[dependency-groups]
+dev = ["pytest>=8.3"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

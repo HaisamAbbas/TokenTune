@@ -23,7 +23,7 @@ One execution of a Workflow, imported from an external observability source. May
 One generation request within a Trace — a single call to a model that produces tokens and incurs cost. Does not represent retrieval or other non-generation steps; see Retrieval Step.
 
 **Retrieval Step**:
-One retrieval action within a Trace (e.g. `retriever.search()`) — modeled explicitly (top_k used, chunk count, retrieved token count) rather than inferred from an LLM Call's prompt size, so that recommendations like "reduce top_k" are based on real retrieval numbers, not guesses. Model and migration exist as of Phase 3; nothing populates it from real telemetry yet (`LangfuseAdapter` does not map retrieval observations into it) — that adapter work is Phase 4.
+One retrieval action within a Trace (e.g. `retriever.search()`) — modeled explicitly (top_k used, chunk count, retrieved token count) rather than inferred from an LLM Call's prompt size, so that recommendations like "reduce top_k" are based on real retrieval numbers, not guesses. Model and migration exist as of Phase 3; as of Phase 4, `LangfuseAdapter` maps `type: "retriever"` observations (produced by `examples/sample-rag-app`'s `@observe(as_type="retriever")` instrumentation) into `RetrievalStep` rows via `NormalizedRetrievalEvent`.
 _Avoid_: Search, Context fetch
 
 **Cost**:

@@ -62,7 +62,9 @@ services:
       LANGFUSE_HOST: ${LANGFUSE_HOST:-}
 
   sample-rag-app:
-    build: ./examples/sample-rag-app
+    build:
+      context: .
+      dockerfile: examples/sample-rag-app/Dockerfile
     restart: unless-stopped
     environment:
       QDRANT_COLLECTION: ${SAMPLE_RAG_QDRANT_COLLECTION:-sample-corpus}

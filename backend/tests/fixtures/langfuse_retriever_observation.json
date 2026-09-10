@@ -1,0 +1,43 @@
+{
+  "core": {
+    "id": "span-retriever-1",
+    "traceId": "trace-42",
+    "type": "retriever"
+  },
+  "basic": {
+    "name": "_semantic_search_pipeline",
+    "startTime": "2026-01-01T00:00:30+00:00"
+  },
+  "io": {
+    "input": {
+      "args": [],
+      "kwargs": {
+        "query": "What causes Venus to be so hot?",
+        "limit": 3
+      }
+    },
+    "output": [
+      {
+        "score": 0.83,
+        "data": {
+          "content": "Venus is the second planet from the Sun and the hottest in the Solar System, with surface temperatures around 465 degrees Celsius thanks to a runaway greenhouse effect from its thick carbon dioxide atmosphere."
+        }
+      },
+      {
+        "score": 0.61,
+        "data": {
+          "content": "Mercury is the smallest planet in the Solar System and the closest to the Sun."
+        }
+      },
+      {
+        "score": 0.44,
+        "data": {
+          "content": "Earth is the third planet from the Sun and the only known planet to support life."
+        }
+      }
+    ]
+  },
+  "metadata": {
+    "tool": "semantic_search"
+  }
+}

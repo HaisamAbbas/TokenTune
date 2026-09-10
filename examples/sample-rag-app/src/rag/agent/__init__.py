@@ -13,6 +13,9 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 
+from ai_cost_optimizer.client import OptimizerClient
+from langfuse import get_client, observe
+
 from rag import config
 from rag.types import (
     AssistantMessage,
@@ -54,7 +57,14 @@ class Agent:
             _embed (OptionalEmbed, optional): The embed component to use to generate embeddings. Defaults to OpenAIEmbed if not provided.
 
         """
-        self.model = model
+        # AI Cost Optimizer config swap: any field the platform has an
+        # opinion on (via AI_OPTIMIZER_* env vars, see OptimizerClient)
+        # overrides the value the app/LLM would otherwise have used. A
+        # field left None means "no opinion" - behavior is unchanged.
+        self._optimizer_config = OptimizerClient(project_slug="sample-rag-app").get_config()
+
+        self.model = self._optimizer_config.model or model
+        self.system = self._optimizer_config.prompt or type(self).system
         self.chat = _chat or config.get_openai_chat()
         self.search = _search or config.get_qdrant()
         self.embed = _embed or config.get_openai_embed()
@@ -65,6 +75,22 @@ class Agent:
             "keyword_search": self._keyword_search_pipeline,
         }
 
+    def _resolve_limit(self, limit: int) -> int:
+        """Force the optimizer's top_k override, when configured, over any caller-supplied limit."""
+        return self._optimizer_config.top_k or limit
+
+    def _record_retrieval_output(self, search_results: list[SearchResult]) -> None:
+        """Attach the raw search results as the current retriever span's output.
+
+        The pipeline methods below return a prompt-template string (needed
+        for the tool-call result), not the raw `list[SearchResult]` - so the
+        real retrieval output (score/content per chunk) is attached
+        explicitly here. This is a no-op when Langfuse has no credentials
+        configured (`get_client()` returns a disabled client).
+        """
+        get_client().update_current_span(output=search_results)
+
+    @observe(as_type="retriever")
     async def _hybrid_search_pipeline(
         self,
         query: str,
@@ -72,37 +98,48 @@ class Agent:
         limit: int = 25,
     ) -> str:
         """Pipeline to perform a hybrid search and build a string template."""
+        limit = self._resolve_limit(limit)
+
         query_embedding = await self.embed.generate_embedding(text=query)
 
         search_results = await self.search.hybrid_search(
             query=query_embedding, keywords=keywords, limit=limit
         )
+        self._record_retrieval_output(search_results)
 
         template = self._build_template(search_results)
 
         return template
 
+    @observe(as_type="retriever")
     async def _semantic_search_pipeline(self, query: str, limit: int = 25) -> str:
         """Pipeline to perform a semantic search and build a string template."""
+        limit = self._resolve_limit(limit)
+
         query_embedding = await self.embed.generate_embedding(text=query)
 
         search_results = await self.search.semantic_search(
             query=query_embedding, limit=limit
         )
+        self._record_retrieval_output(search_results)
 
         template = self._build_template(search_results)
 
         return template
 
+    @observe(as_type="retriever")
     async def _keyword_search_pipeline(
         self,
         keywords: list[str],
         limit: int = 25,
     ) -> str:
         """Pipeline to perform a keyword search and build a string template."""
+        limit = self._resolve_limit(limit)
+
         search_results = await self.search.keyword_search(
             keywords=keywords, limit=limit
         )
+        self._record_retrieval_output(search_results)
 
         template = self._build_template(search_results)
 
@@ -154,6 +191,12 @@ class Agent:
 
         new_messages: Messages = []
         new_messages.append(assistant_message)
+
+        # Config swap: force the optimizer's max_tokens over anything the
+        # caller passed, when configured (same "present -> force it, absent
+        # -> unchanged" semantics as the model/prompt/top_k overrides above).
+        if self._optimizer_config.max_tokens is not None:
+            kwargs["max_tokens"] = self._optimizer_config.max_tokens
 
         async for chunk in self.chat.generate_stream(
             messages, model=self.model, tools=self.tools, **kwargs

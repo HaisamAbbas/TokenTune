@@ -67,7 +67,9 @@ def import_project_telemetry(
     project = _get_project_or_404(project_id, db)
     result = import_telemetry(project, payload.from_ts, payload.to_ts, db)
     return TelemetryImportResult(
-        traces_created=result.traces_created, llm_calls_created=result.llm_calls_created
+        traces_created=result.traces_created,
+        llm_calls_created=result.llm_calls_created,
+        retrieval_steps_created=result.retrieval_steps_created,
     )
 
 
