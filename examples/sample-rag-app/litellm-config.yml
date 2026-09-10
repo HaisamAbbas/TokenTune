@@ -1,0 +1,26 @@
+model_list:
+  # Default / free-tier model — used unless the caller asks for another one.
+  - model_name: glm-4.5-flash
+    litellm_params:
+      model: zai/glm-4.5-flash
+      api_key: os.environ/ZAI_API_KEY
+
+  # Paid alternatives, wired up so they can be selected for cost-comparison
+  # experiments later. Not the default.
+  - model_name: glm-5.3-flash
+    litellm_params:
+      model: zai/glm-5.3-flash
+      api_key: os.environ/ZAI_API_KEY
+
+  - model_name: glm-5.3
+    litellm_params:
+      model: zai/glm-5.3
+      api_key: os.environ/ZAI_API_KEY
+
+litellm_settings:
+  # Langfuse logging is optional: we have no live Langfuse instance for this
+  # phase, and the proxy must start fine without it. Leave `success_callback`
+  # empty by default. To enable Langfuse later, set LANGFUSE_PUBLIC_KEY /
+  # LANGFUSE_SECRET_KEY / LANGFUSE_HOST in the environment and change the line
+  # below to `success_callback: ["langfuse"]`.
+  success_callback: []

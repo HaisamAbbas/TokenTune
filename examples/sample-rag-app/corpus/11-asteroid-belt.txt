@@ -1,0 +1,6 @@
+The asteroid belt is a torus-shaped region of the Solar System located
+between the orbits of Mars and Jupiter. It contains millions of asteroids,
+ranging from tiny dust grains to the dwarf planet Ceres, which is large enough
+to be rounded by its own gravity. Despite popular depictions, the asteroid
+belt is mostly empty space -- the average distance between objects is large
+enough that spacecraft have crossed it many times without incident.

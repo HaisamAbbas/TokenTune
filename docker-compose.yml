@@ -27,5 +27,59 @@ services:
       postgres:
         condition: service_healthy
 
+  # --- examples/sample-rag-app infra (Phase 4a) ---
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  tei:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+    restart: unless-stopped
+    command: ["--model-id", "BAAI/bge-m3"]
+    ports:
+      - "8080:80"
+    volumes:
+      - tei_data:/data
+
+  litellm-proxy:
+    image: ghcr.io/berriai/litellm:main-latest
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./examples/sample-rag-app/litellm-config.yml:/app/litellm-config.yml:ro
+    command: ["--config", "/app/litellm-config.yml"]
+    environment:
+      ZAI_API_KEY: ${ZAI_API_KEY:?ZAI_API_KEY is required}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_HOST: ${LANGFUSE_HOST:-}
+
+  sample-rag-app:
+    build: ./examples/sample-rag-app
+    restart: unless-stopped
+    environment:
+      QDRANT_COLLECTION: ${SAMPLE_RAG_QDRANT_COLLECTION:-sample-corpus}
+      QDRANT_URL: http://qdrant:6333
+      CHAT_URL: http://litellm-proxy:4000
+      CHAT_API_KEY: None
+      OPENAI_EMBEDDING_MODEL: ${SAMPLE_RAG_EMBEDDING_MODEL:-bge-m3}
+      EMBED_URL: http://tei:80/v1
+      EMBED_API_KEY: None
+    ports:
+      - "8001:8000"
+    depends_on:
+      - qdrant
+      - litellm-proxy
+      - tei
+
 volumes:
   postgres_data:
+  qdrant_data:
+  tei_data:
