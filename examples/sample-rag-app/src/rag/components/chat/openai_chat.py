@@ -53,33 +53,51 @@ class OpenAIChat:
             model=model,
             messages=messages,  # type: ignore[arg-type]
             stream=True,
+            # Ask the (litellm-proxied) API for a terminal usage-only chunk,
+            # so callers get real token counts (Phase 5: needed by the
+            # experiment runner to compute real cost/token metrics).
+            stream_options={"include_usage": True},
             **kwargs,
         )
 
         tool_buffer_index: dict[int, Tool] = {}
 
         async for chunk in response:  # type: ignore[union-attr]
-            delta = chunk.choices[0].delta
-            if content := delta.content:
-                yield {"content": content, "tools": None}
+            # The usage chunk (when include_usage is honored) carries an
+            # empty `choices` list - guard before indexing into it.
+            if chunk.choices:
+                delta = chunk.choices[0].delta
+                if content := delta.content:
+                    yield {"content": content, "tools": None, "usage": None}
 
-            if tool_calls := delta.tool_calls:
-                for call in tool_calls:
-                    idx = call.index
-                    if idx not in tool_buffer_index:
-                        tool_buffer_index[idx] = {
-                            "id": "",
-                            "type": "function",
-                            "function": {"name": "", "arguments": ""},
-                        }
-                    if call_id := call.id:
-                        tool_buffer_index[idx]["id"] = call_id
-                    if function := call.function:
-                        if name := function.name:
-                            tool_buffer_index[idx]["function"]["name"] = name
-                        if arguments := function.arguments:
-                            tool_buffer_index[idx]["function"]["arguments"] += arguments
+                if tool_calls := delta.tool_calls:
+                    for call in tool_calls:
+                        idx = call.index
+                        if idx not in tool_buffer_index:
+                            tool_buffer_index[idx] = {
+                                "id": "",
+                                "type": "function",
+                                "function": {"name": "", "arguments": ""},
+                            }
+                        if call_id := call.id:
+                            tool_buffer_index[idx]["id"] = call_id
+                        if function := call.function:
+                            if name := function.name:
+                                tool_buffer_index[idx]["function"]["name"] = name
+                            if arguments := function.arguments:
+                                tool_buffer_index[idx]["function"]["arguments"] += arguments
+
+            if usage := getattr(chunk, "usage", None):
+                yield {
+                    "content": None,
+                    "tools": None,
+                    "usage": {
+                        "prompt_tokens": usage.prompt_tokens,
+                        "completion_tokens": usage.completion_tokens,
+                        "total_tokens": usage.total_tokens,
+                    },
+                }
 
         if tool_buffer_index:
             tool_buffers = list(tool_buffer_index.values())
-            yield {"content": None, "tools": tool_buffers}
+            yield {"content": None, "tools": tool_buffers, "usage": None}

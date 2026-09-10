@@ -21,7 +21,14 @@ class OptimizationRecommendation(Base):
     current_config: Mapped[dict] = mapped_column(JSON, nullable=False)
     proposed_config: Mapped[dict] = mapped_column(JSON, nullable=False)
     estimated_cost_impact: Mapped[str] = mapped_column(Text, nullable=False)
+    # Descriptive, pre-experiment JSON blob from the rule engine (Phase 3),
+    # kept as-is for backward compatibility. Once a real Experiment is
+    # created from this recommendation, `experiment_id` below points at it -
+    # the two are independent; an old row may have only the JSON field.
     required_experiment: Mapped[dict] = mapped_column(JSON, nullable=False)
+    experiment_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("experiments.id"), nullable=True
+    )
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
     created_at: Mapped[datetime] = mapped_column(

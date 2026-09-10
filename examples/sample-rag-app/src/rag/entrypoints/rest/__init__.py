@@ -11,6 +11,7 @@ from collections.abc import AsyncGenerator
 
 import httpx
 import uvicorn
+from ai_cost_optimizer.config import ExperimentConfig
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -27,6 +28,11 @@ class Data(BaseModel):
 
     model: str
     messages: Messages
+    # Phase 5: an optional per-request config override. Any field set here
+    # takes precedence over the AI_OPTIMIZER_* env vars for this request
+    # only - no container restart required. Fields left unset fall back to
+    # the env vars (Phase 4b behavior, unchanged when this is omitted).
+    config_override: ExperimentConfig | None = None
 
 
 @app.get("/api/models")
@@ -59,7 +65,7 @@ async def send_messages(data: Data, stream: bool = False):  # noqa: ANN201
         StreamingResponse: If stream is True; A SSE response containing the generated text in data events.
 
     """
-    agent = Agent(model=data.model)
+    agent = Agent(model=data.model, config_override=data.config_override)
 
     messages = data.messages.model_dump()
 
@@ -87,7 +93,13 @@ async def send_messages(data: Data, stream: bool = False):  # noqa: ANN201
         async for chunk in full_response():
             buffer += chunk
 
-        return JSONResponse({"response": buffer})
+        # Phase 5: expose usage (token counts), summed across every LLM turn
+        # this request drove (a tool call means more than one turn), so
+        # callers that need real cost/quality numbers (the experiment
+        # runner) don't have to guess. `None` when the underlying stream
+        # didn't report usage (e.g. a provider that ignores
+        # `stream_options.include_usage`).
+        return JSONResponse({"response": buffer, "usage": agent.total_usage})
 
 
 def api() -> None:  # pragma: no cover

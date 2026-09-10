@@ -39,9 +39,22 @@ class OptimizationRecommendationRead(BaseModel):
     proposed_config: dict[str, Any]
     estimated_cost_impact: str
     required_experiment: dict[str, Any]
+    experiment_id: uuid.UUID | None
     confidence: float
     status: str
     created_at: datetime
+
+
+class OptimizationRecommendationStatusUpdate(BaseModel):
+    """Body for PATCH /projects/{id}/optimizations/{recommendation_id}.
+
+    Business rule (enforced in the endpoint, not here): `adopted` requires a
+    linked Experiment that has completed; `rejected` is allowed at any time.
+    This only ever updates the recommendation's `status` field - it never
+    mutates any production configuration.
+    """
+
+    status: Literal["adopted", "rejected"]
 
 
 class AnalyzeRequest(BaseModel):

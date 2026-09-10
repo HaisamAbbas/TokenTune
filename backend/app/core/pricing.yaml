@@ -4,3 +4,20 @@ gpt-4o:
 gpt-4o-mini:
   input_per_1k: 0.00015
   output_per_1k: 0.0006
+# GLM models (Phase 5), served via examples/sample-rag-app's litellm-proxy
+# (litellm-config.yml model_list). Rates are illustrative list-price
+# estimates for z.ai's GLM family (same "estimate, not billing truth"
+# spirit as the gpt-4o rows above) - used so experiment cost comparisons
+# against the sample app have a real, if approximate, USD figure.
+# Deliberately priced above gpt-4o-mini (not the cheapest in this table) so
+# they don't change which model `model_cost_optimization` recommends in the
+# existing gpt-4o/gpt-4o-mini test fixtures above.
+glm-4.5-flash:
+  input_per_1k: 0.0003
+  output_per_1k: 0.0009
+glm-5.3-flash:
+  input_per_1k: 0.0004
+  output_per_1k: 0.0012
+glm-5.3:
+  input_per_1k: 0.0008
+  output_per_1k: 0.0028

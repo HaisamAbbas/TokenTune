@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_cost_optimizer.client import OptimizerClient
+from ai_cost_optimizer.config import ExperimentConfig
 from langfuse import get_client, observe
 
 from rag import config
@@ -47,6 +48,7 @@ class Agent:
         _chat: OptionalChat = None,
         _search: OptionalSearch = None,
         _embed: OptionalEmbed = None,
+        config_override: ExperimentConfig | None = None,
     ) -> None:
         """Initialize an `Agent` instance.
 
@@ -55,19 +57,30 @@ class Agent:
             _chat (OptionalChat, optional): The chat component to use to generate chat completions. Defaults to OpenAIChat if not provided.
             _search (OptionalSearch, optional): The search component to use to generate search results. Defaults to QdrantSearch if not provided.
             _embed (OptionalEmbed, optional): The embed component to use to generate embeddings. Defaults to OpenAIEmbed if not provided.
+            config_override (ExperimentConfig, optional): A per-request config override (Phase 5), e.g. supplied by
+                a single `/api/chat` call. Takes precedence over the `AI_OPTIMIZER_*` env vars for this instance
+                only, without requiring a process restart. Fields left unset on the override fall back to the
+                env-var value. Defaults to None (env vars only, Phase 4b behavior).
 
         """
         # AI Cost Optimizer config swap: any field the platform has an
-        # opinion on (via AI_OPTIMIZER_* env vars, see OptimizerClient)
-        # overrides the value the app/LLM would otherwise have used. A
-        # field left None means "no opinion" - behavior is unchanged.
-        self._optimizer_config = OptimizerClient(project_slug="sample-rag-app").get_config()
+        # opinion on (via AI_OPTIMIZER_* env vars, see OptimizerClient, or a
+        # per-request `config_override`) overrides the value the app/LLM
+        # would otherwise have used. A field left None means "no opinion" -
+        # behavior is unchanged.
+        self._optimizer_config = OptimizerClient(project_slug="sample-rag-app").get_config(
+            override=config_override
+        )
 
         self.model = self._optimizer_config.model or model
         self.system = self._optimizer_config.prompt or type(self).system
         self.chat = _chat or config.get_openai_chat()
         self.search = _search or config.get_qdrant()
         self.embed = _embed or config.get_openai_embed()
+        # Accumulated across every `generate()` turn this Agent instance
+        # makes (a single REST request may drive several turns via tool
+        # calls) - see the accumulation note in `generate()` below.
+        self.total_usage: dict[str, int] | None = None
 
         self.tool_map = {
             "hybrid_search": self._hybrid_search_pipeline,
@@ -201,6 +214,22 @@ class Agent:
         async for chunk in self.chat.generate_stream(
             messages, model=self.model, tools=self.tools, **kwargs
         ):
+            if usage := chunk.get("usage"):
+                # Usage arrives on its own terminal chunk (content=None,
+                # tools=None) when the underlying stream requests it - see
+                # OpenAIChat.generate_stream. One `generate()` call is one
+                # LLM turn, so there is at most one usage chunk per call -
+                # but a single REST /api/chat request can drive multiple
+                # turns (tool call -> tool result -> another turn), so
+                # accumulate across calls rather than overwrite. Callers
+                # that want just the final turn's tokens can still diff
+                # against the previous total_usage before calling again.
+                if self.total_usage is None:
+                    self.total_usage = dict(usage)
+                else:
+                    for key, value in usage.items():
+                        self.total_usage[key] = self.total_usage.get(key, 0) + value
+
             if content := chunk["content"]:
                 assistant_message["content"] += content
                 yield content

@@ -39,4 +39,13 @@ A component that fetches from one external observability source (currently Langf
 A rule engine's proposed change to a Workflow's configuration (model, top_k, prompt, or max_tokens), backed by a reason, current/proposed configuration, estimated cost impact, and confidence. Implemented in Phase 3.
 
 **Experiment**:
-A controlled run of a Workflow under an alternative configuration, compared against the same Workflow's baseline configuration on the same Evaluation Dataset. Never mutates production configuration. Not yet implemented (Phase 4).
+A controlled run of a Workflow under an alternative configuration, compared against the same Workflow's baseline configuration on the same Evaluation Dataset. Never mutates production configuration. Implemented (Phase 5): executed over HTTP against the target application (see docs/adr/0004-experiment-execution-over-http.md) rather than in-process, since a real target application is a separate deployed service, not an importable pipeline function. Optionally linked from an Optimization Recommendation via `experiment_id`; a recommendation can only move to `adopted` once its linked Experiment has `completed`.
+
+**Evaluation Dataset**:
+A named set of question/expected-answer pairs (Evaluation Items) an Experiment is scored against. Implemented in Phase 5; mirrors the shape of `examples/sample-rag-app/eval/dataset.json`. Imported via `POST /projects/{id}/evaluations/import`.
+
+**Evaluation Item**:
+One question/expected-answer pair (plus an optional source document reference) belonging to an Evaluation Dataset.
+
+**Experiment Run**:
+One variant's (baseline or experiment) aggregated result for an Experiment - cost, token, latency, and quality metrics computed directly from that variant's evaluation run. Deliberately isolated from `traces`/`llm_calls`: experiment telemetry is never written into production telemetry tables.

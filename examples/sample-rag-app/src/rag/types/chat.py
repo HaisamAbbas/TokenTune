@@ -11,6 +11,12 @@ __all__ = ["Chat", "OptionalChat", "Stream"]
 class StreamPart(TypedDict):
     content: str | None
     tools: list[Tool] | None
+    # Non-None only on the terminal usage chunk emitted when the underlying
+    # stream requests `stream_options={"include_usage": True}` (Phase 5,
+    # needed so callers like the experiment runner see real token counts).
+    # Always present (may be None) so existing `chunk["usage"]`-style access
+    # never raises KeyError.
+    usage: dict[str, int] | None
 
 
 type Stream = AsyncGenerator[StreamPart]

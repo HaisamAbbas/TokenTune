@@ -7,6 +7,10 @@ from app.core.config import settings
 from app.core.db import Base
 from app.models import (  # noqa: F401
     Environment,
+    EvaluationDataset,
+    EvaluationItem,
+    Experiment,
+    ExperimentRun,
     LLMCall,
     OptimizationRecommendation,
     Project,
