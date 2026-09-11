@@ -263,6 +263,19 @@ async def run_project_experiment(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
 
+    if outcome.experiment.status == "failed":
+        # A variant fully failed (e.g. every item errored) - the comparison
+        # numbers were never computed (see run_experiment), so surface the
+        # failure rather than returning 200 with fabricated percentages.
+        raise HTTPException(status_code=422, detail=outcome.experiment.error)
+
+    # run_experiment only omits the comparison fields (leaves them None) when
+    # experiment.status == "failed", which we've just ruled out above.
+    assert outcome.cost_reduction_pct is not None
+    assert outcome.quality_difference is not None
+    assert outcome.latency_difference_ms is not None
+    assert outcome.token_reduction_pct is not None
+
     return ExperimentComparisonResult(
         experiment=ExperimentRead.model_validate(outcome.experiment),
         baseline_run=ExperimentRunRead.model_validate(outcome.baseline_run),

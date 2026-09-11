@@ -1,10 +1,14 @@
+import asyncio
+import time
 import uuid
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.evaluation.base import Evaluator
+from app.models.experiment import ExperimentRun
 from app.models.optimization import OptimizationRecommendation
 from app.services import experiments as experiments_service
 
@@ -37,6 +41,23 @@ def _import_dataset(client: TestClient, project_id: str) -> dict:
     )
     assert response.status_code == 201
     return response.json()
+
+
+def _import_dataset_with_items(client: TestClient, project_id: str, count: int) -> dict:
+    items = [
+        {
+            "question": f"question {i}?",
+            "expected_answer": f"answer {i}",
+            "source_doc": f"{i:02d}-doc.txt",
+        }
+        for i in range(count)
+    ]
+    response = client.post(
+        f"/projects/{project_id}/evaluations/import",
+        json={"name": f"dataset-{count}-items", "items": items},
+    )
+    assert response.status_code == 201
+    return response.json()["dataset"]
 
 
 class _FakeChatResponse:
@@ -229,3 +250,206 @@ def test_adopt_succeeds_once_linked_experiment_completes(
     assert adopt_response.status_code == 200
     assert adopt_response.json()["status"] == "adopted"
     assert adopt_response.json()["experiment_id"] == experiment_id
+
+
+class _FakeVariantFailingClient:
+    """Every request whose `config_override.model` is `_FAILING_MODEL` fails
+    with an HTTP error; everything else succeeds like `_FakeChatClient`. Lets
+    a test force one whole variant to fail without touching real infra."""
+
+    FAILING_MODEL = "nonexistent-model"
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        pass
+
+    async def post(self, url: str, json: dict) -> _FakeChatResponse:
+        config_override = json.get("config_override") or {}
+        if config_override.get("model") == self.FAILING_MODEL:
+            request = httpx.Request("POST", "http://sample-rag-app/api/chat")
+            raise httpx.ConnectError("no such model", request=request)
+        return _FakeChatResponse(
+            {
+                "response": "A plausible generated answer.",
+                "usage": {"prompt_tokens": 500, "completion_tokens": 80, "total_tokens": 580},
+            }
+        )
+
+    async def aclose(self) -> None:
+        pass
+
+
+def test_run_returns_error_when_a_variant_fully_fails(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When every item in a variant fails, the run endpoint must surface a
+    clear error instead of a 200 with fabricated comparison percentages, and
+    `compare_runs` must never be invoked with a request_count == 0 variant."""
+    monkeypatch.setattr(experiments_service.httpx, "AsyncClient", _FakeVariantFailingClient)
+    monkeypatch.setattr(experiments_service, "AnswerCorrectnessEvaluator", lambda: _FakeEvaluator())
+
+    called_compare_runs = False
+    original_compare_runs = experiments_service.compare_runs
+
+    def _spy_compare_runs(*args: object, **kwargs: object) -> dict:
+        nonlocal called_compare_runs
+        called_compare_runs = True
+        return original_compare_runs(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(experiments_service, "compare_runs", _spy_compare_runs)
+
+    project = _create_project(client, slug="full-failure-project")
+    dataset = _import_dataset(client, project["id"])["dataset"]
+
+    create_response = client.post(
+        f"/projects/{project['id']}/experiments",
+        json={
+            "name": "broken model swap",
+            "baseline_config": {},
+            "experiment_config": {"model": _FakeVariantFailingClient.FAILING_MODEL},
+            "evaluation_dataset_id": dataset["id"],
+        },
+    )
+    assert create_response.status_code == 201
+    experiment_id = create_response.json()["id"]
+
+    run_response = client.post(f"/projects/{project['id']}/experiments/{experiment_id}/run")
+
+    assert run_response.status_code in (422, 409)
+    assert "detail" in run_response.json()
+    assert not called_compare_runs
+
+    get_response = client.get(f"/projects/{project['id']}/experiments/{experiment_id}")
+    assert get_response.status_code == 200
+    body = get_response.json()
+    assert body["status"] == "failed"
+    assert body["error"]
+
+
+def test_per_item_failure_is_persisted_in_run_metrics(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A single failing item (not a whole-variant failure) should still
+    complete the experiment, but the failure must be recoverable afterwards
+    from the persisted ExperimentRun.metrics - not just the transient
+    response from the /run call."""
+
+    failing_question = "question 1?"
+
+    class _FakePartiallyFailingClient:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        async def post(self, url: str, json: dict) -> _FakeChatResponse:
+            question = json["messages"][0]["content"]
+            if question == failing_question:
+                request = httpx.Request("POST", "http://sample-rag-app/api/chat")
+                raise httpx.ReadTimeout("timed out", request=request)
+            return _FakeChatResponse(
+                {
+                    "response": "A plausible generated answer.",
+                    "usage": {"prompt_tokens": 500, "completion_tokens": 80, "total_tokens": 580},
+                }
+            )
+
+        async def aclose(self) -> None:
+            pass
+
+    monkeypatch.setattr(experiments_service.httpx, "AsyncClient", _FakePartiallyFailingClient)
+    monkeypatch.setattr(experiments_service, "AnswerCorrectnessEvaluator", lambda: _FakeEvaluator())
+
+    project = _create_project(client, slug="partial-failure-project")
+    dataset = _import_dataset_with_items(client, project["id"], count=3)
+
+    create_response = client.post(
+        f"/projects/{project['id']}/experiments",
+        json={
+            "name": "partial failure",
+            "baseline_config": {},
+            "experiment_config": {"top_k": 3},
+            "evaluation_dataset_id": dataset["id"],
+        },
+    )
+    experiment_id = create_response.json()["id"]
+
+    run_response = client.post(f"/projects/{project['id']}/experiments/{experiment_id}/run")
+    assert run_response.status_code == 200
+    body = run_response.json()
+    assert body["experiment"]["status"] == "completed"
+    assert any(failing_question in q for q in body["failed_questions"])
+
+    # The important assertion: re-fetch the persisted rows from the DB in a
+    # *fresh* query, independent of the transient /run response, and confirm
+    # the failure is queryable there too.
+    runs = (
+        db_session.query(ExperimentRun)
+        .filter(ExperimentRun.experiment_id == uuid.UUID(experiment_id))
+        .all()
+    )
+    assert len(runs) == 2
+    for run in runs:
+        assert run.metrics["request_count"] == 2
+        assert any(failing_question in q for q in run.metrics["failed_questions"])
+
+
+def test_concurrent_item_execution_produces_correct_aggregated_metrics(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Items within a variant (and the two variants themselves) should run
+    concurrently rather than strictly sequentially. We assert correctness of
+    the aggregated metrics (the robust check) and, as a rough sanity check,
+    that wall-clock time is meaningfully less than fully sequential
+    execution would take."""
+
+    item_count = 5
+    delay_seconds = 0.05
+
+    class _FakeSlowClient:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        async def post(self, url: str, json: dict) -> _FakeChatResponse:
+            await asyncio.sleep(delay_seconds)
+            return _FakeChatResponse(
+                {
+                    "response": "A plausible generated answer.",
+                    "usage": {"prompt_tokens": 500, "completion_tokens": 80, "total_tokens": 580},
+                }
+            )
+
+        async def aclose(self) -> None:
+            pass
+
+    monkeypatch.setattr(experiments_service.httpx, "AsyncClient", _FakeSlowClient)
+    monkeypatch.setattr(experiments_service, "AnswerCorrectnessEvaluator", lambda: _FakeEvaluator())
+
+    project = _create_project(client, slug="concurrency-project")
+    dataset = _import_dataset_with_items(client, project["id"], count=item_count)
+
+    create_response = client.post(
+        f"/projects/{project['id']}/experiments",
+        json={
+            "name": "concurrency check",
+            "baseline_config": {},
+            "experiment_config": {"top_k": 3},
+            "evaluation_dataset_id": dataset["id"],
+        },
+    )
+    experiment_id = create_response.json()["id"]
+
+    fully_sequential_seconds = item_count * 2 * delay_seconds
+
+    start = time.perf_counter()
+    run_response = client.post(f"/projects/{project['id']}/experiments/{experiment_id}/run")
+    elapsed_seconds = time.perf_counter() - start
+
+    assert run_response.status_code == 200
+    body = run_response.json()
+    assert body["failed_questions"] == []
+    assert body["baseline_run"]["metrics"]["request_count"] == item_count
+    assert body["experiment_run"]["metrics"]["request_count"] == item_count
+    assert body["cost_reduction_pct"] == 0.0
+
+    # Rough sanity check only (correctness above is the real assertion):
+    # concurrent execution should be meaningfully faster than the fully
+    # sequential worst case.
+    assert elapsed_seconds < fully_sequential_seconds * 0.6

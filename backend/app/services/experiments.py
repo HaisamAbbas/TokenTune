@@ -1,6 +1,9 @@
+import asyncio
+import logging
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 from sqlalchemy.orm import Session
@@ -13,11 +16,20 @@ from app.models.optimization import OptimizationRecommendation
 from app.models.project import Project
 from app.services.pricing import estimate_cost
 
+logger = logging.getLogger(__name__)
+
 # The model used for the outer /api/chat request body. A per-variant
 # `config_override.model` (when set) takes precedence inside the sample app
 # - see OptimizerClient.get_config() - so this is just the fallback the
 # sample app would otherwise use.
 _DEFAULT_MODEL = "glm-4.5-flash"
+
+# Upper bound on concurrent in-flight /api/chat + judge calls per variant.
+# The sample app / litellm-proxy / judge LLM all have real (if generous)
+# rate/capacity limits, so we deliberately don't fire all N items at once -
+# 5 is a conservative bound that still gives a large speedup over strictly
+# sequential execution for typical eval datasets (tens of items).
+_MAX_CONCURRENT_ITEMS = 5
 
 
 @dataclass
@@ -30,23 +42,29 @@ class _ItemResult:
 
 @dataclass
 class _VariantOutcome:
-    metrics: dict[str, float | int]
+    metrics: dict[str, Any]
     failed_questions: list[str] = field(default_factory=list)
 
 
 @dataclass
 class ExperimentOutcome:
     """Return value of `run_experiment`: the (now completed/failed)
-    Experiment, its two persisted ExperimentRun rows, and the derived
-    comparison numbers."""
+    Experiment, its two persisted ExperimentRun rows, and - only when the
+    experiment actually completed - the derived comparison numbers.
+
+    When `experiment.status == "failed"` (e.g. every item in a variant
+    failed), the comparison fields are all `None`: they are never computed
+    against a meaningless all-zero/all-failed baseline. Callers must check
+    `experiment.status` before trusting them.
+    """
 
     experiment: Experiment
     baseline_run: ExperimentRun
     experiment_run: ExperimentRun
-    cost_reduction_pct: float
-    quality_difference: float
-    latency_difference_ms: float
-    token_reduction_pct: float
+    cost_reduction_pct: float | None
+    quality_difference: float | None
+    latency_difference_ms: float | None
+    token_reduction_pct: float | None
     failed_questions: list[str]
 
 
@@ -85,17 +103,18 @@ def create_experiment(
     return experiment
 
 
-async def _run_variant(
+async def _run_item(
     client: httpx.AsyncClient,
     evaluator: Evaluator,
-    items: list[EvaluationItem],
+    item: EvaluationItem,
     config_override: dict,
-) -> _VariantOutcome:
-    results: list[_ItemResult] = []
-    failed_questions: list[str] = []
-    total_cost = 0.0
-
-    for item in items:
+    semaphore: asyncio.Semaphore,
+) -> tuple[_ItemResult, float] | str:
+    """Run a single evaluation item and return its `(_ItemResult, cost)`, or
+    a string describing the failure. Never raises - each item's failure is
+    fully independent so one bad item can't cancel its siblings under
+    `asyncio.gather`."""
+    async with semaphore:
         try:
             start = time.perf_counter()
             response = await client.post(
@@ -122,21 +141,42 @@ async def _run_variant(
 
             model_for_cost = config_override.get("model") or _DEFAULT_MODEL
             cost = estimate_cost(model_for_cost, input_tokens, output_tokens)
-            if cost is not None:
-                total_cost += float(cost)
 
-            results.append(
-                _ItemResult(
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    latency_ms=latency_ms,
-                    quality_score=quality_score,
-                )
+            item_result = _ItemResult(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                latency_ms=latency_ms,
+                quality_score=quality_score,
             )
+            return item_result, float(cost) if cost is not None else 0.0
         except (httpx.HTTPError, ValueError, KeyError) as exc:
             # Don't let one bad question kill the whole run - record it and
             # keep going, aggregating over whatever succeeded.
-            failed_questions.append(f"{item.question!r}: {exc}")
+            logger.warning("evaluation item failed: %r: %s", item.question, exc, exc_info=True)
+            return f"{item.question!r}: {exc}"
+
+
+async def _run_variant(
+    client: httpx.AsyncClient,
+    evaluator: Evaluator,
+    items: list[EvaluationItem],
+    config_override: dict,
+) -> _VariantOutcome:
+    semaphore = asyncio.Semaphore(_MAX_CONCURRENT_ITEMS)
+    outcomes = await asyncio.gather(
+        *(_run_item(client, evaluator, item, config_override, semaphore) for item in items)
+    )
+
+    results: list[_ItemResult] = []
+    failed_questions: list[str] = []
+    total_cost = 0.0
+    for outcome in outcomes:
+        if isinstance(outcome, str):
+            failed_questions.append(outcome)
+            continue
+        item_result, item_cost = outcome
+        results.append(item_result)
+        total_cost += item_cost
 
     request_count = len(results)
     if request_count == 0:
@@ -149,6 +189,7 @@ async def _run_variant(
                 "avg_latency_ms": 0.0,
                 "quality_score": 0.0,
                 "request_count": 0,
+                "failed_questions": failed_questions,
             },
             failed_questions=failed_questions,
         )
@@ -161,6 +202,7 @@ async def _run_variant(
         "avg_latency_ms": sum(r.latency_ms for r in results) / request_count,
         "quality_score": sum(r.quality_score for r in results) / request_count,
         "request_count": request_count,
+        "failed_questions": failed_questions,
     }
     return _VariantOutcome(metrics=metrics, failed_questions=failed_questions)
 
@@ -171,14 +213,20 @@ async def run_experiment(
     _http_client: httpx.AsyncClient | None = None,
     _evaluator: Evaluator | None = None,
 ) -> ExperimentOutcome:
-    """Execute both variants of `experiment` against the sample app over
-    HTTP (see docs/adr/0004), score each answer with the Answer Correctness
-    evaluator, persist one ExperimentRun per variant, and return the
-    comparison. Never raises for per-item failures; only raises if the
-    dataset itself has no items or every item in a variant fails (in which
-    case the experiment is marked `failed` and the exception is not
-    propagated - the returned dict carries `experiment.status == "failed"`
-    via the caller re-reading the row, callers should check `experiment.status`).
+    """Execute both variants of `experiment` concurrently against the sample
+    app over HTTP (see docs/adr/0004), score each answer with the Answer
+    Correctness evaluator, persist one ExperimentRun per variant, and return
+    the comparison. Per-item requests within a variant are also run
+    concurrently (bounded by `_MAX_CONCURRENT_ITEMS`); a single item's
+    failure never cancels the others - it is logged and recorded in
+    `failed_questions` (also persisted into that variant's `ExperimentRun.metrics`).
+
+    Never raises for per-item failures; only raises if the dataset itself
+    has no items. If every item in a variant fails, the experiment is marked
+    `failed` (with `experiment.error` set) and the comparison fields on the
+    returned `ExperimentOutcome` are `None` - they are deliberately never
+    computed against a meaningless all-zero/all-failed baseline. Callers
+    must check `experiment.status` before trusting the comparison fields.
     """
     evaluator = _evaluator or AnswerCorrectnessEvaluator()
     items = (
@@ -199,9 +247,9 @@ async def run_experiment(
     owns_client = _http_client is None
     client = _http_client or httpx.AsyncClient(base_url=settings.sample_rag_app_url, timeout=60.0)
     try:
-        baseline_outcome = await _run_variant(client, evaluator, items, experiment.baseline_config)
-        experiment_outcome = await _run_variant(
-            client, evaluator, items, experiment.experiment_config
+        baseline_outcome, experiment_outcome = await asyncio.gather(
+            _run_variant(client, evaluator, items, experiment.baseline_config),
+            _run_variant(client, evaluator, items, experiment.experiment_config),
         )
     finally:
         if owns_client:
@@ -225,9 +273,11 @@ async def run_experiment(
     db.add(baseline_row)
     db.add(experiment_row)
 
-    if baseline_outcome.metrics["request_count"] == 0 or (
-        experiment_outcome.metrics["request_count"] == 0
-    ):
+    variant_fully_failed = (
+        baseline_outcome.metrics["request_count"] == 0
+        or experiment_outcome.metrics["request_count"] == 0
+    )
+    if variant_fully_failed:
         experiment.status = "failed"
         experiment.error = "all evaluation items failed for a variant: " + "; ".join(all_failures)
     else:
@@ -237,6 +287,22 @@ async def run_experiment(
     db.refresh(baseline_row)
     db.refresh(experiment_row)
     db.refresh(experiment)
+
+    # Only compute the comparison when both variants actually produced data -
+    # percentages derived against an all-zero/all-failed variant (e.g. "100%
+    # cost reduction" for a run that produced no real data) are meaningless,
+    # so we don't compute them at all in that case, not merely hide them.
+    if variant_fully_failed:
+        return ExperimentOutcome(
+            experiment=experiment,
+            baseline_run=baseline_row,
+            experiment_run=experiment_row,
+            cost_reduction_pct=None,
+            quality_difference=None,
+            latency_difference_ms=None,
+            token_reduction_pct=None,
+            failed_questions=all_failures,
+        )
 
     comparison = compare_runs(baseline_row, experiment_row)
     return ExperimentOutcome(
