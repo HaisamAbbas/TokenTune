@@ -27,6 +27,24 @@ services:
       postgres:
         condition: service_healthy
 
+  dashboard:
+    build:
+      context: ./dashboard
+      args:
+        # NEXT_PUBLIC_* vars are inlined into the browser bundle at build
+        # time, so this must be reachable from the *browser* (the host's
+        # published backend port), not the Docker-network service name -
+        # `http://backend:8000` would only resolve for server-side fetches
+        # inside the compose network, and all data fetching here is
+        # client-side (TanStack Query). Override via .env if the backend is
+        # published on a different host port.
+        NEXT_PUBLIC_API_BASE_URL: ${DASHBOARD_API_BASE_URL:-http://localhost:8000}
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
   # --- examples/sample-rag-app infra (Phase 4a) ---
 
   qdrant:
