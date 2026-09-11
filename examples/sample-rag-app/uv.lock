@@ -3,20 +3,6 @@ revision = 3
 requires-python = ">=3.13"
 
 [[package]]
-name = "ai-cost-optimizer-sdk"
-version = "0.1.0"
-source = { directory = "../../sdk" }
-dependencies = [
-    { name = "pydantic" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "pydantic", specifier = ">=2.9" }]
-
-[package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=8.3" }]
-
-[[package]]
 name = "annotated-types"
 version = "0.7.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1271,12 +1257,12 @@ name = "rag"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "ai-cost-optimizer-sdk" },
     { name = "fastapi", extra = ["standard"] },
     { name = "langfuse" },
     { name = "openai" },
     { name = "pydantic-settings" },
     { name = "qdrant-client", extra = ["fastembed"] },
+    { name = "tokentune" },
 ]
 
 [package.dev-dependencies]
@@ -1295,12 +1281,12 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "ai-cost-optimizer-sdk", directory = "../../sdk" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.115.8" },
     { name = "langfuse", specifier = ">=2.53.9" },
     { name = "openai", specifier = ">=1.61.1" },
     { name = "pydantic-settings", specifier = ">=2.7.1" },
     { name = "qdrant-client", extras = ["fastembed"], specifier = ">=1.13.2" },
+    { name = "tokentune", directory = "../../sdk" },
 ]
 
 [package.metadata.requires-dev]
@@ -1510,6 +1496,24 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/15/b0/dc4572ca61555fc482ebc933f26cb407c6aceb3dc19c301c68184f8cad03/tokenizers-0.21.0-cp39-abi3-win32.whl", hash = "sha256:eb1702c2f27d25d9dd5b389cc1f2f51813e99f8ca30d9e25348db6585a97e24a", size = 2202266, upload-time = "2024-11-27T13:11:28.784Z" },
     { url = "https://files.pythonhosted.org/packages/44/69/d21eb253fa91622da25585d362a874fa4710be600f0ea9446d8d0217cec1/tokenizers-0.21.0-cp39-abi3-win_amd64.whl", hash = "sha256:87841da5a25a3a5f70c102de371db120f41873b854ba65e52bccd57df5a3780c", size = 2389192, upload-time = "2024-11-27T13:11:25.724Z" },
 ]
+
+[[package]]
+name = "tokentune"
+version = "0.1.0"
+source = { directory = "../../sdk" }
+dependencies = [
+    { name = "httpx" },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "pydantic", specifier = ">=2.9" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=8.3" }]
 
 [[package]]
 name = "tomlkit"

@@ -11,7 +11,7 @@ from collections.abc import AsyncGenerator
 
 import httpx
 import uvicorn
-from ai_cost_optimizer.config import ExperimentConfig
+from tokentune.config import ExperimentConfig
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -29,7 +29,7 @@ class Data(BaseModel):
     model: str
     messages: Messages
     # Phase 5: an optional per-request config override. Any field set here
-    # takes precedence over the AI_OPTIMIZER_* env vars for this request
+    # takes precedence over the TOKENTUNE_* env vars for this request
     # only - no container restart required. Fields left unset fall back to
     # the env vars (Phase 4b behavior, unchanged when this is omitted).
     config_override: ExperimentConfig | None = None

@@ -72,7 +72,9 @@ class AnswerCorrectnessEvaluator(Evaluator):
         self.model = model or settings.judge_model
         self._client = _client
 
-    async def evaluate(self, question: str, expected_answer: str, actual_answer: str) -> float:
+    async def evaluate(
+        self, question: str, expected_answer: str, actual_answer: str
+    ) -> dict[str, float]:
         prompt = _JUDGE_PROMPT.format(
             question=question, expected_answer=expected_answer, actual_answer=actual_answer
         )
@@ -98,6 +100,6 @@ class AnswerCorrectnessEvaluator(Evaluator):
             raw_text = body["choices"][0]["message"]["content"] or ""
         except (httpx.HTTPError, KeyError, IndexError, TypeError) as exc:
             logger.warning("AnswerCorrectnessEvaluator: judge call failed: %s", exc)
-            return _FALLBACK_SCORE
+            return {"correctness": _FALLBACK_SCORE}
 
-        return _parse_score(raw_text)
+        return {"correctness": _parse_score(raw_text)}

@@ -20,6 +20,26 @@ export function last30DaysRange() {
   return { fromTs: from.toISOString(), toTs: to.toISOString() };
 }
 
+export function metricLabel(metricName: string) {
+  return metricName
+    .split("_")
+    .map((word) => word[0].toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+export function statusLabel(status: string) {
+  switch (status) {
+    case "experiment_created":
+      return "Experiment created";
+    case "experiment_running":
+      return "Experiment running";
+    case "validated":
+      return "Validated";
+    default:
+      return status[0].toUpperCase() + status.slice(1);
+  }
+}
+
 export function ruleLabel(ruleName: string) {
   switch (ruleName) {
     case "excessive_retrieval_context":
@@ -30,6 +50,8 @@ export function ruleLabel(ruleName: string) {
       return { title: "Prompt size / caching", code: "RULE C" };
     case "unnecessary_generation_calls":
       return { title: "Unnecessary generation calls", code: "RULE D" };
+    case "segmented_model_routing":
+      return { title: "Segmented model routing", code: "RULE E" };
     default:
       return { title: ruleName, code: "" };
   }

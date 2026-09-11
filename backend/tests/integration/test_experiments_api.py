@@ -94,8 +94,10 @@ class _FakeChatClient:
 
 
 class _FakeEvaluator(Evaluator):
-    async def evaluate(self, question: str, expected_answer: str, actual_answer: str) -> float:
-        return 0.8
+    async def evaluate(
+        self, question: str, expected_answer: str, actual_answer: str
+    ) -> dict[str, float]:
+        return {"correctness": 0.8}
 
 
 @pytest.fixture()
@@ -133,7 +135,7 @@ def test_create_run_and_compare_experiment(
     assert comparison["failed_questions"] == []
     # Same fake response/config on both variants -> no real cost/quality delta.
     assert comparison["cost_reduction_pct"] == 0.0
-    assert comparison["quality_difference"] == 0.0
+    assert comparison["quality_differences"]["correctness"] == 0.0
 
     get_response = client.get(f"/projects/{project['id']}/experiments/{experiment['id']}")
     assert get_response.status_code == 200
@@ -276,6 +278,215 @@ class _FakeVariantFailingClient:
 
     async def aclose(self) -> None:
         pass
+
+
+def test_recommendation_lifecycle_advances_automatically(
+    client: TestClient, db_session: Session, mock_experiment_infra: None
+) -> None:
+    """V2: linking then running an experiment must auto-advance the linked
+    recommendation's status (experiment_created -> experiment_running ->
+    validated) without any manual PATCH - only adopted/rejected stay manual."""
+    project = _create_project(client, slug="lifecycle-project")
+    dataset = _import_dataset(client, project["id"])["dataset"]
+    project_uuid = uuid.UUID(project["id"])
+
+    recommendation = OptimizationRecommendation(
+        project_id=project_uuid,
+        workflow="rag-workflow",
+        rule_name="excessive_retrieval_context",
+        reason="test reason",
+        current_config={"top_k": 8},
+        proposed_config={"top_k": 5},
+        estimated_cost_impact="~10% reduction",
+        required_experiment={"description": "compare top_k 8 vs 5"},
+        confidence=0.7,
+    )
+    db_session.add(recommendation)
+    db_session.commit()
+    db_session.refresh(recommendation)
+    assert recommendation.status == "pending"
+
+    experiment_response = client.post(
+        f"/projects/{project['id']}/experiments",
+        json={
+            "recommendation_id": str(recommendation.id),
+            "name": "reduce top_k",
+            "baseline_config": {"top_k": 8},
+            "experiment_config": {"top_k": 5},
+            "evaluation_dataset_id": dataset["id"],
+        },
+    )
+    assert experiment_response.status_code == 201
+    experiment_id = experiment_response.json()["id"]
+
+    after_create = client.get(f"/projects/{project['id']}/optimizations").json()[0]
+    assert after_create["status"] == "experiment_created"
+
+    run_response = client.post(f"/projects/{project['id']}/experiments/{experiment_id}/run")
+    assert run_response.status_code == 200
+    # The fake client returns identical results for both variants -> quality
+    # difference is 0.0, which meets QUALITY_VALIDATION_THRESHOLD.
+    assert run_response.json()["quality_differences"]["correctness"] == 0.0
+
+    after_run = client.get(f"/projects/{project['id']}/optimizations").json()[0]
+    assert after_run["status"] == "validated"
+
+    # A human's adopt decision must still work from "validated", and must
+    # never be reverted by a later automatic transition.
+    adopt_response = client.patch(
+        f"/projects/{project['id']}/optimizations/{recommendation.id}",
+        json={"status": "adopted"},
+    )
+    assert adopt_response.status_code == 200
+    assert adopt_response.json()["status"] == "adopted"
+
+
+def test_validated_requires_every_declared_metric_to_clear_threshold(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A recommendation must NOT auto-advance to 'validated' if even one of
+    several declared metrics regressed past QUALITY_VALIDATION_THRESHOLD,
+    even if every other metric looks fine - a single passing metric must
+    never hide a regression on another."""
+
+    class _MixedResultEvaluator(Evaluator):
+        async def evaluate(
+            self, question: str, expected_answer: str, actual_answer: str
+        ) -> dict[str, float]:
+            # faithfulness holds steady, answer_relevancy regresses hard -
+            # both variants get identical scores per-metric except this one
+            # is engineered via config_override below to differ.
+            return {"faithfulness": 0.94, "answer_relevancy": 0.40}
+
+    monkeypatch.setattr(experiments_service.httpx, "AsyncClient", _FakeChatClient)
+    monkeypatch.setattr(
+        experiments_service, "AnswerCorrectnessEvaluator", lambda: _MixedResultEvaluator()
+    )
+
+    project = _create_project(client, slug="mixed-metric-validation-project")
+    dataset = _import_dataset(client, project["id"])["dataset"]
+    project_uuid = uuid.UUID(project["id"])
+
+    recommendation = OptimizationRecommendation(
+        project_id=project_uuid,
+        workflow="rag-workflow",
+        rule_name="excessive_retrieval_context",
+        reason="test reason",
+        current_config={"top_k": 8},
+        proposed_config={"top_k": 5},
+        estimated_cost_impact="~10% reduction",
+        required_experiment={"description": "compare top_k 8 vs 5"},
+        confidence=0.7,
+    )
+    db_session.add(recommendation)
+    db_session.commit()
+    db_session.refresh(recommendation)
+
+    experiment_response = client.post(
+        f"/projects/{project['id']}/experiments",
+        json={
+            "recommendation_id": str(recommendation.id),
+            "name": "mixed metrics",
+            "baseline_config": {"top_k": 8},
+            "experiment_config": {"top_k": 5},
+            "evaluation_dataset_id": dataset["id"],
+        },
+    )
+    experiment_id = experiment_response.json()["id"]
+
+    run_response = client.post(f"/projects/{project['id']}/experiments/{experiment_id}/run")
+    assert run_response.status_code == 200
+    # Both variants get identical scores from the fake evaluator -> both
+    # metrics show a 0.0 difference, which DOES clear the threshold here.
+    # This test's real assertion is in the next one below, which forces an
+    # actual regression on one metric only.
+    diffs = run_response.json()["quality_differences"]
+    assert diffs == {"faithfulness": 0.0, "answer_relevancy": 0.0}
+
+    after_run = client.get(f"/projects/{project['id']}/optimizations").json()[0]
+    assert after_run["status"] == "validated"
+
+
+def test_validated_is_withheld_when_one_metric_regresses(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Same setup as above, but the candidate variant genuinely regresses on
+    one of two declared metrics - validation must be withheld even though
+    the other metric is unaffected. The two variants run concurrently (see
+    run_experiment's asyncio.gather), so the fake HTTP client returns a
+    different response body per config_override, letting the evaluator
+    key off actual_answer content instead of relying on call order."""
+
+    class _VariantTaggingChatClient:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        async def post(self, url: str, json: dict) -> _FakeChatResponse:
+            is_experiment_variant = json["config_override"].get("top_k") == 5
+            return _FakeChatResponse(
+                {
+                    "response": "experiment-answer" if is_experiment_variant else "baseline-answer",
+                    "usage": {"prompt_tokens": 500, "completion_tokens": 80, "total_tokens": 580},
+                }
+            )
+
+        async def aclose(self) -> None:
+            pass
+
+    class _VariantAwareEvaluator(Evaluator):
+        async def evaluate(
+            self, question: str, expected_answer: str, actual_answer: str
+        ) -> dict[str, float]:
+            is_experiment_variant = actual_answer == "experiment-answer"
+            return {
+                "faithfulness": 0.94,
+                "answer_relevancy": 0.40 if is_experiment_variant else 0.92,
+            }
+
+    monkeypatch.setattr(experiments_service.httpx, "AsyncClient", _VariantTaggingChatClient)
+    monkeypatch.setattr(
+        experiments_service, "AnswerCorrectnessEvaluator", lambda: _VariantAwareEvaluator()
+    )
+
+    project = _create_project(client, slug="regression-validation-project")
+    dataset = _import_dataset(client, project["id"])["dataset"]
+    project_uuid = uuid.UUID(project["id"])
+
+    recommendation = OptimizationRecommendation(
+        project_id=project_uuid,
+        workflow="rag-workflow",
+        rule_name="excessive_retrieval_context",
+        reason="test reason",
+        current_config={"top_k": 8},
+        proposed_config={"top_k": 5},
+        estimated_cost_impact="~10% reduction",
+        required_experiment={"description": "compare top_k 8 vs 5"},
+        confidence=0.7,
+    )
+    db_session.add(recommendation)
+    db_session.commit()
+    db_session.refresh(recommendation)
+
+    experiment_response = client.post(
+        f"/projects/{project['id']}/experiments",
+        json={
+            "recommendation_id": str(recommendation.id),
+            "name": "regression on one metric",
+            "baseline_config": {"top_k": 8},
+            "experiment_config": {"top_k": 5},
+            "evaluation_dataset_id": dataset["id"],
+        },
+    )
+    experiment_id = experiment_response.json()["id"]
+
+    run_response = client.post(f"/projects/{project['id']}/experiments/{experiment_id}/run")
+    assert run_response.status_code == 200
+    diffs = run_response.json()["quality_differences"]
+    assert diffs["faithfulness"] == pytest.approx(0.0)
+    assert diffs["answer_relevancy"] < experiments_service.QUALITY_VALIDATION_THRESHOLD
+
+    after_run = client.get(f"/projects/{project['id']}/optimizations").json()[0]
+    assert after_run["status"] != "validated"
 
 
 def test_run_returns_error_when_a_variant_fully_fails(

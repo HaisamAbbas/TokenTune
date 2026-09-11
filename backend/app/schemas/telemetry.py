@@ -27,6 +27,44 @@ class TelemetryImportResult(BaseModel):
     retrieval_steps_created: int
 
 
+class TelemetryReportItem(BaseModel):
+    """One SDK-mediated call's outcome, reported live by the TokenTune SDK's
+    `client.report(...)` - as opposed to imported after the fact from
+    Langfuse. `trace_id` is the SDK's own correlation id (becomes
+    `Trace.external_trace_id`)."""
+
+    trace_id: str
+    model: str
+    input_tokens: int
+    output_tokens: int
+    latency_ms: float
+    cost: float | None = None
+    quality_score: float | None = None
+    workflow: str | None = None
+    timestamp: datetime
+
+    @field_validator("timestamp")
+    @classmethod
+    def _coerce_naive_to_utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value
+
+
+class TelemetryReportRequest(BaseModel):
+    # The SDK only ever knows a project's slug (from `OptimizerClient(project_slug=...)`),
+    # never its backend UUID - carried in the body rather than the URL so
+    # this endpoint doesn't collide with the UUID-keyed /projects/{project_id}
+    # routes.
+    project_slug: str
+    items: list[TelemetryReportItem]
+
+
+class TelemetryReportResult(BaseModel):
+    traces_created: int
+    llm_calls_created: int
+
+
 class CostBucket(BaseModel):
     bucket: str | None
     total_cost: Decimal | None

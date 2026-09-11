@@ -1,13 +1,14 @@
 import pytest
 
-from ai_cost_optimizer.client import OptimizerClient
-from ai_cost_optimizer.config import ExperimentConfig
+from tokentune.client import OptimizerClient
+from tokentune.config import ExperimentConfig
 
 ENV_VARS = [
-    "AI_OPTIMIZER_MODEL",
-    "AI_OPTIMIZER_TOP_K",
-    "AI_OPTIMIZER_PROMPT",
-    "AI_OPTIMIZER_MAX_TOKENS",
+    "TOKENTUNE_MODEL",
+    "TOKENTUNE_TOP_K",
+    "TOKENTUNE_PROMPT",
+    "TOKENTUNE_MAX_TOKENS",
+    "TOKENTUNE_BACKEND_URL",
 ]
 
 
@@ -24,10 +25,10 @@ def test_get_config_defaults_to_all_none_when_no_env_vars_set() -> None:
 
 
 def test_get_config_reads_values_from_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("AI_OPTIMIZER_MODEL", "glm-4-flash")
-    monkeypatch.setenv("AI_OPTIMIZER_TOP_K", "2")
-    monkeypatch.setenv("AI_OPTIMIZER_PROMPT", "Be terse.")
-    monkeypatch.setenv("AI_OPTIMIZER_MAX_TOKENS", "256")
+    monkeypatch.setenv("TOKENTUNE_MODEL", "glm-4-flash")
+    monkeypatch.setenv("TOKENTUNE_TOP_K", "2")
+    monkeypatch.setenv("TOKENTUNE_PROMPT", "Be terse.")
+    monkeypatch.setenv("TOKENTUNE_MAX_TOKENS", "256")
 
     config = OptimizerClient(project_slug="sample-rag-app").get_config()
 
@@ -39,8 +40,8 @@ def test_get_config_reads_values_from_env_vars(monkeypatch: pytest.MonkeyPatch) 
 def test_get_config_treats_empty_string_env_vars_as_unset(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("AI_OPTIMIZER_MODEL", "")
-    monkeypatch.setenv("AI_OPTIMIZER_TOP_K", "")
+    monkeypatch.setenv("TOKENTUNE_MODEL", "")
+    monkeypatch.setenv("TOKENTUNE_TOP_K", "")
 
     config = OptimizerClient(project_slug="sample-rag-app").get_config()
 

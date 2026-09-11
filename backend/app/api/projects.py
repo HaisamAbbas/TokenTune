@@ -20,6 +20,7 @@ from app.schemas.experiment import (
     ExperimentRead,
     ExperimentRunRead,
 )
+from app.schemas.metrics import ProjectMetrics
 from app.schemas.optimization import (
     AnalyzeRequest,
     AnalyzeResult,
@@ -32,12 +33,15 @@ from app.schemas.telemetry import (
     GroupBy,
     TelemetryImportRequest,
     TelemetryImportResult,
+    TelemetryReportRequest,
+    TelemetryReportResult,
 )
 from app.services.analysis import run_analysis
 from app.services.cost import aggregate_cost
 from app.services.evaluation import import_evaluation_dataset
 from app.services.experiments import create_experiment, run_experiment
-from app.services.ingestion import import_telemetry
+from app.services.ingestion import import_telemetry, report_telemetry
+from app.services.metrics import get_project_metrics
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -115,6 +119,20 @@ def get_project_cost(
 ) -> list[CostBucket]:
     _get_project_or_404(project_id, db)
     return aggregate_cost(db, project_id, from_ts, to_ts, group_by)
+
+
+@router.get("/{project_id}/metrics", response_model=ProjectMetrics)
+def get_project_metrics_endpoint(
+    project_id: uuid.UUID,
+    from_ts: datetime = Query(...),
+    to_ts: datetime = Query(...),
+    db: Session = Depends(get_db),
+) -> ProjectMetrics:
+    """V2 dashboard summary: total spend over the window plus total
+    potential savings across currently-open recommendations (project-scoped
+    only - see V2 design decisions)."""
+    _get_project_or_404(project_id, db)
+    return get_project_metrics(db, project_id, from_ts, to_ts)
 
 
 @router.post("/{project_id}/optimizations/analyze", response_model=AnalyzeResult)
@@ -247,15 +265,20 @@ def create_project_experiment(
     if payload.recommendation_id is not None:
         recommendation = _get_recommendation_or_404(project_id, payload.recommendation_id, db)
 
-    return create_experiment(
-        db=db,
-        project=project,
-        baseline_config=payload.baseline_config,
-        experiment_config=payload.experiment_config,
-        evaluation_dataset=dataset,
-        name=payload.name,
-        recommendation=recommendation,
-    )
+    try:
+        return create_experiment(
+            db=db,
+            project=project,
+            baseline_config=payload.baseline_config,
+            experiment_config=payload.experiment_config,
+            evaluation_dataset=dataset,
+            name=payload.name,
+            recommendation=recommendation,
+            evaluator_type=payload.evaluator_type,
+            evaluator_metrics=payload.evaluator_metrics,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
 
 
 @router.post(
@@ -284,7 +307,7 @@ async def run_project_experiment(
     # run_experiment only omits the comparison fields (leaves them None) when
     # experiment.status == "failed", which we've just ruled out above.
     assert outcome.cost_reduction_pct is not None
-    assert outcome.quality_difference is not None
+    assert outcome.quality_differences is not None
     assert outcome.latency_difference_ms is not None
     assert outcome.token_reduction_pct is not None
 
@@ -293,7 +316,7 @@ async def run_project_experiment(
         baseline_run=ExperimentRunRead.model_validate(outcome.baseline_run),
         experiment_run=ExperimentRunRead.model_validate(outcome.experiment_run),
         cost_reduction_pct=outcome.cost_reduction_pct,
-        quality_difference=outcome.quality_difference,
+        quality_differences=outcome.quality_differences,
         latency_difference_ms=outcome.latency_difference_ms,
         token_reduction_pct=outcome.token_reduction_pct,
         failed_questions=outcome.failed_questions,

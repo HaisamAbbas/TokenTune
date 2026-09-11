@@ -19,6 +19,11 @@ class Trace(Base):
     workflow: Mapped[str | None] = mapped_column(String, nullable=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
+    # "langfuse_import" (default, backward-compatible with all pre-SDK rows)
+    # or "sdk_report" (written live by the TokenTune SDK's report() call).
+    # The rule engine and V2 evidence panels must treat both identically -
+    # this column exists only for callers that need to distinguish them.
+    source: Mapped[str] = mapped_column(String, nullable=False, default="langfuse_import")
 
     llm_calls: Mapped[list["LLMCall"]] = relationship(back_populates="trace")
 

@@ -44,12 +44,12 @@ async def test_evaluate_parses_valid_judge_response() -> None:
     body = {"choices": [{"message": {"content": "90"}}]}
     evaluator = AnswerCorrectnessEvaluator(_client=_FakeHttpClient(body))  # type: ignore[arg-type]
 
-    score = await evaluator.evaluate(
+    scores = await evaluator.evaluate(
         question="Why is the sky blue?",
         expected_answer="Rayleigh scattering.",
         actual_answer="Because of Rayleigh scattering of sunlight.",
     )
-    assert score == pytest.approx(0.9)
+    assert scores["correctness"] == pytest.approx(0.9)
 
 
 @pytest.mark.asyncio
@@ -57,12 +57,12 @@ async def test_evaluate_falls_back_on_malformed_judge_response() -> None:
     body = {"choices": [{"message": {"content": "I refuse to score this."}}]}
     evaluator = AnswerCorrectnessEvaluator(_client=_FakeHttpClient(body))  # type: ignore[arg-type]
 
-    score = await evaluator.evaluate(
+    scores = await evaluator.evaluate(
         question="Why is the sky blue?",
         expected_answer="Rayleigh scattering.",
         actual_answer="Bananas.",
     )
-    assert score == 0.0
+    assert scores["correctness"] == 0.0
 
 
 @pytest.mark.asyncio
@@ -70,9 +70,9 @@ async def test_evaluate_falls_back_on_malformed_response_body() -> None:
     body = {"unexpected": "shape"}
     evaluator = AnswerCorrectnessEvaluator(_client=_FakeHttpClient(body))  # type: ignore[arg-type]
 
-    score = await evaluator.evaluate(
+    scores = await evaluator.evaluate(
         question="Why is the sky blue?",
         expected_answer="Rayleigh scattering.",
         actual_answer="Bananas.",
     )
-    assert score == 0.0
+    assert scores["correctness"] == 0.0

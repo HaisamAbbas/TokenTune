@@ -14,6 +14,13 @@ export interface ProjectUpdate {
   langfuse_secret_key?: string;
 }
 
+export interface ProjectMetrics {
+  total_spend: number;
+  total_potential_savings_low: number;
+  total_potential_savings_high: number;
+  open_opportunity_count: number;
+}
+
 export type GroupBy = "day" | "model" | "workflow";
 
 export interface CostBucket {
@@ -30,9 +37,34 @@ export type RuleName =
   | "excessive_retrieval_context"
   | "model_cost_optimization"
   | "prompt_optimization"
-  | "unnecessary_generation_calls";
+  | "unnecessary_generation_calls"
+  | "segmented_model_routing";
 
-export type RecommendationStatus = "pending" | "adopted" | "rejected";
+// "experiment_created"/"experiment_running"/"validated" are set
+// automatically by the backend as an experiment's lifecycle advances - only
+// "adopted"/"rejected" are ever set by a manual PATCH from the frontend.
+export type RecommendationStatus =
+  | "pending"
+  | "experiment_created"
+  | "experiment_running"
+  | "validated"
+  | "adopted"
+  | "rejected";
+
+export type ConfidenceBucket = "high" | "medium" | "low";
+
+export interface RecommendationEvidence {
+  sample_size: number;
+  avg_input_tokens: number;
+  p95_input_tokens: number | null;
+  current_value: unknown;
+  ratio: number | null;
+  estimated_monthly_cost: number;
+  quality_evidence: "not_yet_tested" | "validated";
+  recommended_next_step: string;
+  estimated_savings_low?: number;
+  estimated_savings_high?: number;
+}
 
 export interface OptimizationRecommendation {
   id: string;
@@ -47,6 +79,10 @@ export interface OptimizationRecommendation {
   required_experiment: Record<string, unknown>;
   experiment_id: string | null;
   confidence: number;
+  confidence_bucket: ConfidenceBucket | null;
+  evidence: RecommendationEvidence | null;
+  estimated_savings_low: number | null;
+  estimated_savings_high: number | null;
   status: RecommendationStatus;
   created_at: string;
 }
@@ -58,6 +94,9 @@ export interface AnalyzeResult {
 
 export type ExperimentStatus = "pending" | "running" | "completed" | "failed";
 export type Variant = "baseline" | "experiment";
+// "fallback" = the platform's own AnswerCorrectnessEvaluator (always
+// available); "deepeval" = DeepEval-backed, requires evaluator_metrics.
+export type EvaluatorType = "fallback" | "deepeval";
 
 export interface Experiment {
   id: string;
@@ -67,6 +106,8 @@ export interface Experiment {
   baseline_config: Record<string, unknown>;
   experiment_config: Record<string, unknown>;
   evaluation_dataset_id: string;
+  evaluator_type: EvaluatorType;
+  evaluator_metrics: string[] | null;
   status: ExperimentStatus;
   error: string | null;
   created_at: string;
@@ -78,7 +119,11 @@ export interface ExperimentRunMetrics {
   avg_input_tokens: number;
   avg_output_tokens: number;
   avg_latency_ms: number;
-  quality_score: number;
+  // One entry per metric the experiment's evaluator computed (e.g.
+  // {"correctness": 0.9} for the fallback evaluator, or
+  // {"faithfulness": 0.94, "answer_relevancy": 0.92} for a DeepEval-backed
+  // experiment with multiple metrics selected).
+  quality_scores: Record<string, number>;
   request_count: number;
   failed_questions?: string[];
 }
@@ -97,7 +142,7 @@ export interface ExperimentComparisonResult {
   baseline_run: ExperimentRun;
   experiment_run: ExperimentRun;
   cost_reduction_pct: number;
-  quality_difference: number;
+  quality_differences: Record<string, number>;
   latency_difference_ms: number;
   token_reduction_pct: number;
   failed_questions: string[];

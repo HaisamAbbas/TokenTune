@@ -6,7 +6,7 @@ import { CostBarChart } from "@/components/charts/cost-bar-chart";
 import { ArrowRightIcon, ArrowUpIcon } from "@/components/icons";
 import { Button, ConfigPill, Panel } from "@/components/ui";
 import { computeComparison } from "@/lib/compare";
-import { formatCurrency, formatLatency, formatPct } from "@/lib/format";
+import { formatCurrency, formatLatency, formatPct, metricLabel } from "@/lib/format";
 import {
   useExperiment,
   useExperimentRuns,
@@ -249,27 +249,36 @@ export default function ExperimentDetailPage() {
                     deltaPct={pctFrom(baselineRun.metrics.avg_latency_ms, experimentRun.metrics.avg_latency_ms)}
                     goodDirection="down"
                   />
-                  <tr>
-                    <td className="t-body">Quality (Answer Correctness)</td>
-                    <td className="mono t-body">{baselineRun.metrics.quality_score.toFixed(2)}</td>
-                    <td className="mono t-body">{experimentRun.metrics.quality_score.toFixed(2)}</td>
-                    <td>
-                      <span
-                        className="delta"
-                        style={{
-                          color:
-                            comparison.quality_difference > 0
-                              ? "var(--success)"
-                              : comparison.quality_difference < 0
-                                ? "var(--error)"
-                                : "var(--on-surface-variant)",
-                        }}
-                      >
-                        {comparison.quality_difference >= 0 ? "+" : ""}
-                        {comparison.quality_difference.toFixed(2)}
-                      </span>
-                    </td>
-                  </tr>
+                  {Object.keys(baselineRun.metrics.quality_scores).map((metricName) => {
+                    const diff = comparison.quality_differences[metricName] ?? 0;
+                    return (
+                      <tr key={metricName}>
+                        <td className="t-body">Quality ({metricLabel(metricName)})</td>
+                        <td className="mono t-body">
+                          {baselineRun.metrics.quality_scores[metricName].toFixed(2)}
+                        </td>
+                        <td className="mono t-body">
+                          {experimentRun.metrics.quality_scores[metricName]?.toFixed(2) ?? "—"}
+                        </td>
+                        <td>
+                          <span
+                            className="delta"
+                            style={{
+                              color:
+                                diff > 0
+                                  ? "var(--success)"
+                                  : diff < 0
+                                    ? "var(--error)"
+                                    : "var(--on-surface-variant)",
+                            }}
+                          >
+                            {diff >= 0 ? "+" : ""}
+                            {diff.toFixed(2)}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </Panel>
@@ -304,10 +313,15 @@ export default function ExperimentDetailPage() {
                     )}
                   </span>
                   , with a quality difference of{" "}
-                  <span style={{ color: "var(--on-surface)", fontWeight: 500 }}>
-                    {comparison.quality_difference >= 0 ? "+" : ""}
-                    {comparison.quality_difference.toFixed(2)}
-                  </span>
+                  {Object.entries(comparison.quality_differences).map(([name, diff], i) => (
+                    <span key={name}>
+                      {i > 0 && ", "}
+                      <span style={{ color: "var(--on-surface)", fontWeight: 500 }}>
+                        {diff >= 0 ? "+" : ""}
+                        {diff.toFixed(2)} {metricLabel(name)}
+                      </span>
+                    </span>
+                  ))}
                   .
                 </div>
                 <div className="t-body-sm mt-1.5" style={{ color: "var(--on-surface-variant)" }}>

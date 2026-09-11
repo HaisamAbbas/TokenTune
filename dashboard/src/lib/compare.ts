@@ -18,12 +18,17 @@ export function computeComparison(baselineRun: ExperimentRun, experimentRun: Exp
   const tokenReductionPct =
     baselineTokens > 0 ? ((baselineTokens - experimentTokens) / baselineTokens) * 100 : 0;
 
-  const qualityDifference = experiment.quality_score - baseline.quality_score;
+  const qualityDifferences: Record<string, number> = {};
+  for (const name of Object.keys(baseline.quality_scores)) {
+    if (name in experiment.quality_scores) {
+      qualityDifferences[name] = experiment.quality_scores[name] - baseline.quality_scores[name];
+    }
+  }
   const latencyDifferenceMs = experiment.avg_latency_ms - baseline.avg_latency_ms;
 
   return {
     cost_reduction_pct: costReductionPct,
-    quality_difference: qualityDifference,
+    quality_differences: qualityDifferences,
     latency_difference_ms: latencyDifferenceMs,
     token_reduction_pct: tokenReductionPct,
   };

@@ -15,6 +15,9 @@ dependencies = [
     "httpx>=0.28.1",
 ]
 
+[project.optional-dependencies]
+deepeval = ["deepeval>=1.0"]
+
 [dependency-groups]
 dev = [
     "pytest>=8.3",

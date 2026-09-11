@@ -10,12 +10,33 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.evaluation import AnswerCorrectnessEvaluator, Evaluator
+from app.evaluation import AnswerCorrectnessEvaluator, DeepEvalEvaluator, Evaluator
 from app.models.evaluation import EvaluationDataset, EvaluationItem
 from app.models.experiment import Experiment, ExperimentRun
 from app.models.optimization import OptimizationRecommendation
 from app.models.project import Project
 from app.services.pricing import estimate_cost
+from app.services.rules.base import QUALITY_VALIDATION_THRESHOLD
+
+# Lifecycle states a linked recommendation is still safe to auto-advance
+# from. A human's explicit "adopted"/"rejected" decision (via PATCH
+# .../optimizations/{id}) is never overwritten by these automatic
+# transitions - see _advance_recommendation_lifecycle below.
+_AUTO_ADVANCEABLE_STATUSES = {"pending", "experiment_created", "experiment_running"}
+
+
+def _advance_recommendation_lifecycle(
+    db: Session, recommendation: OptimizationRecommendation | None, new_status: str
+) -> None:
+    """Move a linked recommendation's status forward automatically, as a
+    side effect of backend-observable facts (an experiment was created / is
+    running / completed) - never as a manual PATCH. Never overwrites a
+    human's adopted/rejected decision."""
+    if recommendation is None:
+        return
+    if recommendation.status not in _AUTO_ADVANCEABLE_STATUSES:
+        return
+    recommendation.status = new_status
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +69,7 @@ class _ItemResult:
     input_tokens: int
     output_tokens: int
     latency_ms: float
-    quality_score: float
+    quality_scores: dict[str, float]
 
 
 @dataclass
@@ -73,10 +94,23 @@ class ExperimentOutcome:
     baseline_run: ExperimentRun
     experiment_run: ExperimentRun
     cost_reduction_pct: float | None
-    quality_difference: float | None
+    quality_differences: dict[str, float] | None
     latency_difference_ms: float | None
     token_reduction_pct: float | None
     failed_questions: list[str]
+
+
+def _resolve_evaluator(experiment: Experiment) -> Evaluator:
+    """Per-experiment evaluator selection (SDK spec decision): `evaluator_type`
+    on the Experiment row decides which Evaluator implementation runs, never
+    a project-level setting."""
+    if experiment.evaluator_type == "deepeval":
+        if not experiment.evaluator_metrics:
+            raise ValueError(
+                "experiment.evaluator_type is 'deepeval' but evaluator_metrics is empty"
+            )
+        return DeepEvalEvaluator(experiment.evaluator_metrics)
+    return AnswerCorrectnessEvaluator()
 
 
 def create_experiment(
@@ -87,6 +121,8 @@ def create_experiment(
     evaluation_dataset: EvaluationDataset,
     name: str,
     recommendation: OptimizationRecommendation | None = None,
+    evaluator_type: str = "fallback",
+    evaluator_metrics: list[str] | None = None,
 ) -> Experiment:
     """Persist a new Experiment in `pending` status.
 
@@ -94,6 +130,9 @@ def create_experiment(
     experiment via `OptimizationRecommendation.experiment_id` (the FK added
     in Phase 5 alongside the pre-existing `required_experiment` JSON field).
     """
+    if evaluator_type == "deepeval" and not evaluator_metrics:
+        raise ValueError("evaluator_metrics must be non-empty when evaluator_type is 'deepeval'")
+
     experiment = Experiment(
         project_id=project.id,
         recommendation_id=recommendation.id if recommendation else None,
@@ -101,6 +140,8 @@ def create_experiment(
         baseline_config=baseline_config,
         experiment_config=experiment_config,
         evaluation_dataset_id=evaluation_dataset.id,
+        evaluator_type=evaluator_type,
+        evaluator_metrics=evaluator_metrics,
         status="pending",
     )
     db.add(experiment)
@@ -108,10 +149,21 @@ def create_experiment(
 
     if recommendation is not None:
         recommendation.experiment_id = experiment.id
+        _advance_recommendation_lifecycle(db, recommendation, "experiment_created")
 
     db.commit()
     db.refresh(experiment)
     return experiment
+
+
+def _get_linked_recommendation(
+    db: Session, experiment: Experiment
+) -> OptimizationRecommendation | None:
+    return (
+        db.query(OptimizationRecommendation)
+        .filter(OptimizationRecommendation.experiment_id == experiment.id)
+        .first()
+    )
 
 
 async def _run_item(
@@ -145,7 +197,7 @@ async def _run_item(
                 input_tokens = int(usage.get("prompt_tokens", 0))
                 output_tokens = int(usage.get("completion_tokens", 0))
 
-                quality_score = await evaluator.evaluate(
+                quality_scores = await evaluator.evaluate(
                     question=item.question,
                     expected_answer=item.expected_answer,
                     actual_answer=actual_answer,
@@ -158,7 +210,7 @@ async def _run_item(
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
                     latency_ms=latency_ms,
-                    quality_score=quality_score,
+                    quality_scores=quality_scores,
                 )
                 return item_result, float(cost) if cost is not None else 0.0
             except httpx.HTTPStatusError as exc:
@@ -251,20 +303,25 @@ async def _run_variant(
                 "avg_input_tokens": 0.0,
                 "avg_output_tokens": 0.0,
                 "avg_latency_ms": 0.0,
-                "quality_score": 0.0,
+                "quality_scores": {},
                 "request_count": 0,
                 "failed_questions": failed_questions,
             },
             failed_questions=failed_questions,
         )
 
+    metric_names = results[0].quality_scores.keys()
+    quality_scores = {
+        name: sum(r.quality_scores[name] for r in results) / request_count
+        for name in metric_names
+    }
     metrics = {
         "cost_per_request": total_cost / request_count,
         "total_cost": total_cost,
         "avg_input_tokens": sum(r.input_tokens for r in results) / request_count,
         "avg_output_tokens": sum(r.output_tokens for r in results) / request_count,
         "avg_latency_ms": sum(r.latency_ms for r in results) / request_count,
-        "quality_score": sum(r.quality_score for r in results) / request_count,
+        "quality_scores": quality_scores,
         "request_count": request_count,
         "failed_questions": failed_questions,
     }
@@ -292,7 +349,7 @@ async def run_experiment(
     computed against a meaningless all-zero/all-failed baseline. Callers
     must check `experiment.status` before trusting the comparison fields.
     """
-    evaluator = _evaluator or AnswerCorrectnessEvaluator()
+    evaluator = _evaluator or _resolve_evaluator(experiment)
     items = (
         db.query(EvaluationItem)
         .filter(EvaluationItem.dataset_id == experiment.evaluation_dataset_id)
@@ -300,6 +357,8 @@ async def run_experiment(
     )
 
     experiment.status = "running"
+    linked_recommendation = _get_linked_recommendation(db, experiment)
+    _advance_recommendation_lifecycle(db, linked_recommendation, "experiment_running")
     db.commit()
 
     if not items:
@@ -373,19 +432,27 @@ async def run_experiment(
             baseline_run=baseline_row,
             experiment_run=experiment_row,
             cost_reduction_pct=None,
-            quality_difference=None,
+            quality_differences=None,
             latency_difference_ms=None,
             token_reduction_pct=None,
             failed_questions=all_failures,
         )
 
     comparison = compare_runs(baseline_row, experiment_row)
+    # "validated" requires EVERY declared metric to individually clear the
+    # threshold - a single cherry-picked metric passing must never hide a
+    # regression on another metric the experiment explicitly measured.
+    if comparison["quality_differences"] and all(
+        diff >= QUALITY_VALIDATION_THRESHOLD for diff in comparison["quality_differences"].values()
+    ):
+        _advance_recommendation_lifecycle(db, linked_recommendation, "validated")
+        db.commit()
     return ExperimentOutcome(
         experiment=experiment,
         baseline_run=baseline_row,
         experiment_run=experiment_row,
         cost_reduction_pct=comparison["cost_reduction_pct"],
-        quality_difference=comparison["quality_difference"],
+        quality_differences=comparison["quality_differences"],
         latency_difference_ms=comparison["latency_difference_ms"],
         token_reduction_pct=comparison["token_reduction_pct"],
         failed_questions=all_failures,
@@ -414,12 +481,18 @@ def compare_runs(baseline_run: ExperimentRun, experiment_run: ExperimentRun) -> 
         else 0.0
     )
 
-    quality_difference = float(experiment["quality_score"]) - float(baseline["quality_score"])
+    baseline_quality: dict[str, float] = baseline.get("quality_scores") or {}
+    experiment_quality: dict[str, float] = experiment.get("quality_scores") or {}
+    quality_differences = {
+        name: float(experiment_quality[name]) - float(baseline_quality[name])
+        for name in baseline_quality
+        if name in experiment_quality
+    }
     latency_difference_ms = float(experiment["avg_latency_ms"]) - float(baseline["avg_latency_ms"])
 
     return {
         "cost_reduction_pct": cost_reduction_pct,
-        "quality_difference": quality_difference,
+        "quality_differences": quality_differences,
         "latency_difference_ms": latency_difference_ms,
         "token_reduction_pct": token_reduction_pct,
     }

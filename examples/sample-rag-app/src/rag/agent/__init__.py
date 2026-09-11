@@ -13,8 +13,8 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 
-from ai_cost_optimizer.client import OptimizerClient
-from ai_cost_optimizer.config import ExperimentConfig
+from tokentune.client import OptimizerClient
+from tokentune.config import ExperimentConfig
 from langfuse import get_client, observe
 
 from rag import config
@@ -58,13 +58,13 @@ class Agent:
             _search (OptionalSearch, optional): The search component to use to generate search results. Defaults to QdrantSearch if not provided.
             _embed (OptionalEmbed, optional): The embed component to use to generate embeddings. Defaults to OpenAIEmbed if not provided.
             config_override (ExperimentConfig, optional): A per-request config override (Phase 5), e.g. supplied by
-                a single `/api/chat` call. Takes precedence over the `AI_OPTIMIZER_*` env vars for this instance
+                a single `/api/chat` call. Takes precedence over the `TOKENTUNE_*` env vars for this instance
                 only, without requiring a process restart. Fields left unset on the override fall back to the
                 env-var value. Defaults to None (env vars only, Phase 4b behavior).
 
         """
         # AI Cost Optimizer config swap: any field the platform has an
-        # opinion on (via AI_OPTIMIZER_* env vars, see OptimizerClient, or a
+        # opinion on (via TOKENTUNE_* env vars, see OptimizerClient, or a
         # per-request `config_override`) overrides the value the app/LLM
         # would otherwise have used. A field left None means "no opinion" -
         # behavior is unchanged.

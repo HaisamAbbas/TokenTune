@@ -26,6 +26,13 @@ class Experiment(Base):
     evaluation_dataset_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("evaluation_datasets.id"), nullable=False
     )
+    # Evaluator selection is per-experiment (SDK spec decision), not a
+    # project-level setting - one project can mix DeepEval-backed and
+    # fallback-backed experiments. "fallback" = AnswerCorrectnessEvaluator
+    # (always available); "deepeval" = DeepEvalEvaluator, requires the
+    # optional `deepeval` package and evaluator_metrics to be non-empty.
+    evaluator_type: Mapped[str] = mapped_column(String, nullable=False, default="fallback")
+    evaluator_metrics: Mapped[list | None] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
     error: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -45,8 +52,9 @@ class ExperimentRun(Base):
     experiment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("experiments.id"), nullable=False)
     variant: Mapped[str] = mapped_column(String, nullable=False)
     # Keys: cost_per_request, total_cost, avg_input_tokens, avg_output_tokens,
-    # avg_latency_ms, quality_score, request_count (see
-    # app.services.experiments for the exact computation).
+    # avg_latency_ms, quality_scores (dict[str, float], one entry per metric
+    # the experiment's evaluator computed - see app.evaluation.Evaluator),
+    # request_count (see app.services.experiments for the exact computation).
     metrics: Mapped[dict] = mapped_column(JSON, nullable=False)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)

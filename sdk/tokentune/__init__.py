@@ -1,3 +1,3 @@
-from ai_cost_optimizer.client import OptimizerClient
+from tokentune.client import OptimizerClient
 
 __all__ = ["OptimizerClient"]
