@@ -287,7 +287,10 @@ export default function ExperimentDetailPage() {
                 </div>
               </Panel>
 
-              <Panel className="p-6 flex flex-col justify-center gap-2.5">
+              <Panel
+                className="p-6 flex flex-col justify-center gap-2.5"
+                style={{ boxShadow: "var(--elevation-2)" }}
+              >
                 <div className="t-title">Summary</div>
                 <div className="t-body" style={{ color: "var(--on-surface-variant)", lineHeight: 1.6 }}>
                   Switching baseline config to the experiment config changed cost per request by{" "}

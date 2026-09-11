@@ -41,7 +41,7 @@ export default function OverviewPage() {
 
       <div className="flex-1 overflow-auto px-7 pb-7 flex flex-col gap-5">
         {/* KPI strip */}
-        <Panel className="flex py-5.5">
+        <Panel className="flex py-5.5" style={{ boxShadow: "var(--elevation-2)" }}>
           <div className="flex-1 px-7 border-r border-(--outline-variant)">
             <div className="t-label mb-2.5" style={{ color: "var(--on-surface-variant)" }}>
               TOTAL COST · 30D

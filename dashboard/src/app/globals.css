@@ -10,13 +10,20 @@
   --on-surface: oklch(18% 0.012 250);
   --on-surface-variant: oklch(43% 0.012 250);
   --primary: oklch(52% 0.19 12);
+  --primary-high: oklch(60% 0.2 12);
   --on-primary: oklch(99% 0 0);
   --primary-container: oklch(92% 0.06 12);
   --on-primary-container: oklch(30% 0.11 12);
+  --secondary: oklch(52% 0.13 220);
+  --secondary-container: oklch(91% 0.045 220);
+  --on-secondary-container: oklch(30% 0.08 220);
   --success: oklch(38% 0.1 152);
   --warning: oklch(46% 0.13 70);
   --error: oklch(46% 0.18 25);
   --elevation-1: 0 1px 2px 0 oklch(20% 0.02 250 / 0.10), 0 1px 3px 1px oklch(20% 0.02 250 / 0.06);
+  --elevation-2: 0 2px 6px 0 oklch(20% 0.02 250 / 0.12), 0 4px 12px 2px oklch(20% 0.02 250 / 0.08);
+  --glow-primary: 0 2px 8px 0 oklch(52% 0.19 12 / 0.35), 0 1px 2px 0 oklch(52% 0.19 12 / 0.25);
+  --gradient-primary: linear-gradient(135deg, var(--primary-high), var(--primary));
 }
 
 @media (prefers-color-scheme: dark) {
@@ -30,13 +37,20 @@
     --on-surface: oklch(93% 0.004 250);
     --on-surface-variant: oklch(74% 0.008 250);
     --primary: oklch(80% 0.13 12);
+    --primary-high: oklch(87% 0.12 12);
     --on-primary: oklch(20% 0.06 12);
     --primary-container: oklch(32% 0.09 12);
     --on-primary-container: oklch(90% 0.05 12);
+    --secondary: oklch(78% 0.1 220);
+    --secondary-container: oklch(30% 0.06 220);
+    --on-secondary-container: oklch(88% 0.05 220);
     --success: oklch(75% 0.12 152);
     --warning: oklch(80% 0.11 70);
     --error: oklch(78% 0.14 25);
     --elevation-1: 0 1px 2px 0 oklch(0% 0 0 / 0.4), 0 1px 3px 1px oklch(0% 0 0 / 0.25);
+    --elevation-2: 0 2px 6px 0 oklch(0% 0 0 / 0.45), 0 4px 12px 2px oklch(0% 0 0 / 0.3);
+    --glow-primary: 0 2px 10px 0 oklch(80% 0.13 12 / 0.4), 0 1px 3px 0 oklch(80% 0.13 12 / 0.3);
+    --gradient-primary: linear-gradient(135deg, var(--primary-high), var(--primary));
   }
 }
 
@@ -50,13 +64,20 @@
   --on-surface: oklch(93% 0.004 250);
   --on-surface-variant: oklch(74% 0.008 250);
   --primary: oklch(80% 0.13 12);
+  --primary-high: oklch(87% 0.12 12);
   --on-primary: oklch(20% 0.06 12);
   --primary-container: oklch(32% 0.09 12);
   --on-primary-container: oklch(90% 0.05 12);
+  --secondary: oklch(78% 0.1 220);
+  --secondary-container: oklch(30% 0.06 220);
+  --on-secondary-container: oklch(88% 0.05 220);
   --success: oklch(75% 0.12 152);
   --warning: oklch(80% 0.11 70);
   --error: oklch(78% 0.14 25);
   --elevation-1: 0 1px 2px 0 oklch(0% 0 0 / 0.4), 0 1px 3px 1px oklch(0% 0 0 / 0.25);
+  --elevation-2: 0 2px 6px 0 oklch(0% 0 0 / 0.45), 0 4px 12px 2px oklch(0% 0 0 / 0.3);
+  --glow-primary: 0 2px 10px 0 oklch(80% 0.13 12 / 0.4), 0 1px 3px 0 oklch(80% 0.13 12 / 0.3);
+  --gradient-primary: linear-gradient(135deg, var(--primary-high), var(--primary));
 }
 
 @theme inline {
@@ -200,18 +221,38 @@ a {
   border: none;
   cursor: pointer;
   white-space: nowrap;
-  transition: opacity 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow 0.2s ease;
 }
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 .btn:not(:disabled):hover {
-  opacity: 0.9;
+  opacity: 0.94;
+}
+.btn:not(:disabled):active {
+  transform: scale(0.97);
 }
 .btn-filled {
-  background: var(--primary);
+  background: var(--gradient-primary);
   color: var(--on-primary);
+  box-shadow: var(--glow-primary);
+  position: relative;
+}
+.btn-filled::after {
+  /* A faint top highlight for a glass-like sheen - restrained to this one
+     primary-action element, not applied broadly (per the "shine everywhere
+     reads as slop" finding). */
+  content: "";
+  position: absolute;
+  inset: 1px 1px auto 1px;
+  height: 45%;
+  border-radius: 17px 17px 0 0;
+  background: linear-gradient(to bottom, oklch(100% 0 0 / 0.22), transparent);
+  pointer-events: none;
 }
 .btn-outline {
   background: transparent;
@@ -277,10 +318,18 @@ a {
   align-items: center;
   justify-content: center;
   color: var(--on-surface-variant);
+  transition:
+    background 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .rail-indicator.active {
-  background: var(--primary-container);
-  color: var(--on-primary-container);
+  background: var(--gradient-primary);
+  color: var(--on-primary);
+  box-shadow: var(--glow-primary);
+}
+.rail-item:hover .rail-indicator:not(.active) {
+  background: var(--surface-container-high);
 }
 
 .row {

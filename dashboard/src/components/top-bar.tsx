@@ -38,7 +38,7 @@ export function TopBar({
         {action}
         <div
           className="w-8 h-8 rounded-full flex items-center justify-center text-[12px] font-medium"
-          style={{ background: "var(--primary-container)", color: "var(--on-primary-container)" }}
+          style={{ background: "var(--secondary-container)", color: "var(--on-secondary-container)" }}
         >
           HA
         </div>
