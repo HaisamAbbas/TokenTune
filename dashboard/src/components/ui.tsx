@@ -17,6 +17,49 @@ export function Panel({
   );
 }
 
+/** A single KPI stat card with a distinct color identity (accent top bar +
+ * tinted icon badge) - deliberately NOT an interchangeable box in a grid of
+ * identical white cards (that reads as generic AI-dashboard filler). Each
+ * card's `accent` should be a different token so the row reads as several
+ * distinct things at a glance, not one repeated shape. */
+export function StatCard({
+  icon,
+  accent,
+  label,
+  value,
+  caption,
+  className,
+}: {
+  icon: React.ReactNode;
+  accent: string;
+  label: string;
+  value: React.ReactNode;
+  caption?: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn("panel stat-card", className)}
+      style={{ borderTop: `3px solid ${accent}` }}
+    >
+      <div className="stat-card-icon" style={{ background: `color-mix(in oklch, ${accent} 16%, var(--surface-container-low))`, color: accent }}>
+        {icon}
+      </div>
+      <div className="t-label mt-3" style={{ color: "var(--on-surface-variant)" }}>
+        {label}
+      </div>
+      <div className="mono mt-1" style={{ fontSize: 26, fontWeight: 500, letterSpacing: "-0.3px" }}>
+        {value}
+      </div>
+      {caption && (
+        <div className="t-body-sm mt-1.5" style={{ color: "var(--on-surface-variant)" }}>
+          {caption}
+        </div>
+      )}
+    </div>
+  );
+}
+
 type Variant = "filled" | "outline" | "outline-error" | "text";
 
 export function Button({
