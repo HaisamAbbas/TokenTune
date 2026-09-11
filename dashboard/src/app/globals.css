@@ -161,21 +161,6 @@ a {
   box-shadow: var(--elevation-1);
 }
 
-.stat-card {
-  padding: 20px 22px;
-  display: flex;
-  flex-direction: column;
-  border-radius: 16px;
-}
-.stat-card-icon {
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
 .status {
   display: inline-flex;
   align-items: center;

@@ -3,9 +3,8 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { CostLineChart } from "@/components/charts/cost-line-chart";
-import { ClockIcon, CostIcon, OptimizeIcon, TokensIcon } from "@/components/icons";
 import { TopBar } from "@/components/top-bar";
-import { Panel, StatCard, StatusDot } from "@/components/ui";
+import { Panel, StatusDot } from "@/components/ui";
 import { formatCurrency, formatLatency, last30DaysRange } from "@/lib/format";
 import { useOptimizations, useProject, useProjectCost } from "@/lib/queries";
 
@@ -41,45 +40,59 @@ export default function OverviewPage() {
       <TopBar title="Overview" subtitle={project?.slug} />
 
       <div className="flex-1 overflow-auto px-7 pb-7 flex flex-col gap-5">
-        {/* KPI strip - each stat has its own color identity (accent bar +
-            tinted icon badge) rather than being an interchangeable box in a
-            row of identical cards. */}
-        <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
-          <StatCard
-            icon={<CostIcon size={18} />}
-            accent="var(--primary)"
-            label="TOTAL COST · 30D"
-            value={formatCurrency(summary?.total_cost ?? 0)}
-            caption={`${summary?.request_count ?? 0} requests`}
-          />
-          <StatCard
-            icon={<ClockIcon size={18} />}
-            accent="var(--secondary)"
-            label="AVG LATENCY"
-            value={formatLatency(summary?.avg_latency_ms ?? null)}
-            caption="tool-calling included"
-          />
-          <StatCard
-            icon={<TokensIcon size={18} />}
-            accent="var(--warning)"
-            label="TOTAL TOKENS · 30D"
-            value={(summary?.total_tokens ?? 0).toLocaleString()}
-            caption="input + output"
-          />
-          <StatCard
-            icon={<OptimizeIcon size={18} />}
-            accent="var(--success)"
-            label="OPEN RECOMMENDATIONS"
-            value={pendingCount}
-            caption={
-              pendingCount > 0 ? (
+        {/* KPI strip */}
+        <Panel className="flex py-5.5" style={{ boxShadow: "var(--elevation-2)" }}>
+          <div className="flex-1 px-7 border-r border-(--outline-variant)">
+            <div className="t-label mb-2.5" style={{ color: "var(--on-surface-variant)" }}>
+              TOTAL COST · 30D
+            </div>
+            <div className="mono" style={{ fontSize: 26, fontWeight: 500, letterSpacing: "-0.3px" }}>
+              {formatCurrency(summary?.total_cost ?? 0)}
+            </div>
+            <div className="t-body-sm mt-1.5" style={{ color: "var(--on-surface-variant)" }}>
+              {summary?.request_count ?? 0} requests
+            </div>
+          </div>
+          <div className="flex-1 px-7 border-r border-(--outline-variant)">
+            <div className="t-label mb-2.5" style={{ color: "var(--on-surface-variant)" }}>
+              AVG LATENCY
+            </div>
+            <div className="mono" style={{ fontSize: 26, fontWeight: 500, letterSpacing: "-0.3px" }}>
+              {formatLatency(summary?.avg_latency_ms ?? null)}
+            </div>
+            <div className="t-body-sm mt-1.5" style={{ color: "var(--on-surface-variant)" }}>
+              tool-calling included
+            </div>
+          </div>
+          <div className="flex-1 px-7 border-r border-(--outline-variant)">
+            <div className="t-label mb-2.5" style={{ color: "var(--on-surface-variant)" }}>
+              TOTAL TOKENS · 30D
+            </div>
+            <div className="mono" style={{ fontSize: 26, fontWeight: 500, letterSpacing: "-0.3px" }}>
+              {(summary?.total_tokens ?? 0).toLocaleString()}
+            </div>
+            <div className="t-body-sm mt-1.5" style={{ color: "var(--on-surface-variant)" }}>
+              input + output
+            </div>
+          </div>
+          <div className="flex-1 px-7">
+            <div className="t-label mb-2.5" style={{ color: "var(--on-surface-variant)" }}>
+              OPEN RECOMMENDATIONS
+            </div>
+            <div className="mono" style={{ fontSize: 26, fontWeight: 500, letterSpacing: "-0.3px" }}>
+              {pendingCount}
+            </div>
+            {pendingCount > 0 ? (
+              <div className="mt-1.5">
                 <StatusDot status="pending">{readyToAdopt} ready to adopt</StatusDot>
-              ) : (
-                "none open"
-              )
-            }
-          />
-        </div>
+              </div>
+            ) : (
+              <div className="t-body-sm mt-1.5" style={{ color: "var(--on-surface-variant)" }}>
+                none open
+              </div>
+            )}
+          </div>
+        </Panel>
 
         {/* Chart + recommendations */}
         <div className="grid gap-5 flex-1 min-h-0" style={{ gridTemplateColumns: "1.6fr 1fr" }}>
