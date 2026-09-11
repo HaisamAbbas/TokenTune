@@ -21,6 +21,14 @@ export function useUpdateProject(id: string) {
   });
 }
 
+export function useProjectMetrics(projectId: string, fromTs: string, toTs: string) {
+  return useQuery({
+    queryKey: ["metrics", projectId, fromTs, toTs],
+    queryFn: () => api.getProjectMetrics(projectId, fromTs, toTs),
+    enabled: Boolean(projectId),
+  });
+}
+
 export function useProjectCost(
   projectId: string,
   fromTs: string,
@@ -131,6 +139,9 @@ export function useRunExperiment(projectId: string, experimentId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["experiments", projectId, experimentId] });
       qc.invalidateQueries({ queryKey: ["experiments", projectId] });
+      // A completed run can auto-advance a linked recommendation's lifecycle
+      // (experiment_running -> validated) and its evidence panel.
+      qc.invalidateQueries({ queryKey: ["optimizations", projectId] });
     },
   });
 }

@@ -1,4 +1,4 @@
-from app.services.rules.base import Rule, RuleDetection, WorkflowStats
+from app.services.rules.base import Rule, RuleDetection, WorkflowStats, build_evidence
 
 # Above this average number of LLM calls per trace, a workflow likely has
 # redundant or consolidatable generation steps. Detection-only: we flag the
@@ -11,6 +11,10 @@ class UnnecessaryGenerationCallsRule(Rule):
         if stats.avg_calls_per_trace <= CALLS_PER_TRACE_THRESHOLD:
             return None
 
+        next_step = (
+            "Trace through a sample of individual traces for this "
+            "workflow to identify which LLM call steps are redundant."
+        )
         return RuleDetection(
             rule_name="unnecessary_generation_calls",
             reason=(
@@ -23,10 +27,11 @@ class UnnecessaryGenerationCallsRule(Rule):
                 "suggestion": "investigate which steps can be consolidated or removed"
             },
             estimated_cost_impact="depends on which calls, if any, can be removed",
-            required_experiment={
-                "description": (
-                    "Trace through a sample of individual traces for this "
-                    "workflow to identify which LLM call steps are redundant."
-                )
-            },
+            required_experiment={"description": next_step},
+            evidence=build_evidence(
+                stats,
+                current_value={"avg_calls_per_trace": round(stats.avg_calls_per_trace, 2)},
+                recommended_next_step=next_step,
+                savings_fraction=None,
+            ),
         )

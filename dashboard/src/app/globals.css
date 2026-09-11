@@ -195,12 +195,22 @@ a {
   background: var(--error);
 }
 .status.running,
-.status.pending-run {
+.status.pending-run,
+.status.experiment_created,
+.status.experiment_running {
   color: var(--on-surface-variant);
 }
 .status.running .dot,
-.status.pending-run .dot {
+.status.pending-run .dot,
+.status.experiment_created .dot,
+.status.experiment_running .dot {
   background: var(--on-surface-variant);
+}
+.status.validated {
+  color: var(--secondary);
+}
+.status.validated .dot {
+  background: var(--secondary);
 }
 .status.failed {
   color: var(--error);

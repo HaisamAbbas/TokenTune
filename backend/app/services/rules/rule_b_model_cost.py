@@ -1,5 +1,5 @@
 from app.services.pricing import estimate_cost, get_pricing_table
-from app.services.rules.base import Rule, RuleDetection, WorkflowStats
+from app.services.rules.base import Rule, RuleDetection, WorkflowStats, build_evidence
 
 REQUIRED_PRICING_KEYS = ("input_per_1k", "output_per_1k")
 
@@ -45,6 +45,17 @@ class ModelCostOptimizationRule(Rule):
         cheapest_model, cheapest_cost = min(cheaper_candidates, key=lambda item: item[1])
         savings_pct = 1 - (float(cheapest_cost) / float(dominant_cost))
 
+        next_step = (
+            f"Run an A/B comparison of '{dominant_model}' vs "
+            f"'{cheapest_model}' on this workflow to confirm output "
+            "quality is acceptable before switching."
+        )
+        evidence = build_evidence(
+            stats,
+            current_value={"model": dominant_model},
+            recommended_next_step=next_step,
+            savings_fraction=savings_pct,
+        )
         return RuleDetection(
             rule_name="model_cost_optimization",
             reason=(
@@ -56,11 +67,8 @@ class ModelCostOptimizationRule(Rule):
             current_config={"model": dominant_model},
             proposed_config={"model": cheapest_model},
             estimated_cost_impact=f"~{savings_pct:.0%} cost reduction per call",
-            required_experiment={
-                "description": (
-                    f"Run an A/B comparison of '{dominant_model}' vs "
-                    f"'{cheapest_model}' on this workflow to confirm output "
-                    "quality is acceptable before switching."
-                )
-            },
+            required_experiment={"description": next_step},
+            evidence=evidence,
+            estimated_savings_low=evidence.get("estimated_savings_low"),
+            estimated_savings_high=evidence.get("estimated_savings_high"),
         )

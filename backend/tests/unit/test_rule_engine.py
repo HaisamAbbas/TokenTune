@@ -66,3 +66,44 @@ def test_engine_stamps_project_workflow_environment_and_confidence() -> None:
     assert recommendation.workflow == "rag-workflow"
     assert recommendation.environment_id == environment_id
     assert recommendation.confidence == 1.0
+    assert recommendation.confidence_bucket == "high"
+
+
+class _AlwaysFiresModelCostRule(Rule):
+    def evaluate(self, stats: WorkflowStats) -> RuleDetection | None:
+        return RuleDetection(
+            rule_name="model_cost_optimization",
+            reason="stub",
+            current_config={},
+            proposed_config={},
+            estimated_cost_impact="stub",
+            required_experiment={},
+        )
+
+
+class _AlwaysFiresSegmentedRoutingRule(Rule):
+    def evaluate(self, stats: WorkflowStats) -> RuleDetection | None:
+        return RuleDetection(
+            rule_name="segmented_model_routing",
+            reason="stub",
+            current_config={},
+            proposed_config={},
+            estimated_cost_impact="stub",
+            required_experiment={},
+        )
+
+
+def test_engine_suppresses_model_cost_when_segmented_routing_fires() -> None:
+    engine = RuleEngine(rules=[_AlwaysFiresModelCostRule(), _AlwaysFiresSegmentedRoutingRule()])
+    stats = _stats()
+    results = engine.run(stats)
+    rule_names = {r.rule_name for r in results}
+    assert rule_names == {"segmented_model_routing"}
+
+
+def test_engine_keeps_model_cost_when_segmented_routing_does_not_fire() -> None:
+    engine = RuleEngine(rules=[_AlwaysFiresModelCostRule()])
+    stats = _stats()
+    results = engine.run(stats)
+    rule_names = {r.rule_name for r in results}
+    assert rule_names == {"model_cost_optimization"}

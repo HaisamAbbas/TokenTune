@@ -10,6 +10,7 @@ import type {
   GroupBy,
   OptimizationRecommendation,
   Project,
+  ProjectMetrics,
   ProjectUpdate,
   RecommendationStatus,
 } from "./types";
@@ -67,6 +68,11 @@ export const getProjectCost = (
   const params = new URLSearchParams({ from_ts: fromTs, to_ts: toTs });
   if (groupBy) params.set("group_by", groupBy);
   return request<CostBucket[]>(`/projects/${projectId}/cost?${params.toString()}`);
+};
+
+export const getProjectMetrics = (projectId: string, fromTs: string, toTs: string) => {
+  const params = new URLSearchParams({ from_ts: fromTs, to_ts: toTs });
+  return request<ProjectMetrics>(`/projects/${projectId}/metrics?${params.toString()}`);
 };
 
 // Optimizations

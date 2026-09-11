@@ -9,6 +9,7 @@ RuleName = Literal[
     "model_cost_optimization",
     "prompt_optimization",
     "unnecessary_generation_calls",
+    "segmented_model_routing",
 ]
 
 
@@ -23,6 +24,10 @@ class OptimizationRecommendationCreate(BaseModel):
     estimated_cost_impact: str
     required_experiment: dict[str, Any]
     confidence: float
+    confidence_bucket: str | None = None
+    evidence: dict[str, Any] | None = None
+    estimated_savings_low: float | None = None
+    estimated_savings_high: float | None = None
     status: str = "pending"
 
 
@@ -41,6 +46,10 @@ class OptimizationRecommendationRead(BaseModel):
     required_experiment: dict[str, Any]
     experiment_id: uuid.UUID | None
     confidence: float
+    confidence_bucket: str | None
+    evidence: dict[str, Any] | None
+    estimated_savings_low: float | None
+    estimated_savings_high: float | None
     status: str
     created_at: datetime
 

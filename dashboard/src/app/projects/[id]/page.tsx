@@ -6,7 +6,7 @@ import { CostLineChart } from "@/components/charts/cost-line-chart";
 import { TopBar } from "@/components/top-bar";
 import { Panel, StatusDot } from "@/components/ui";
 import { formatCurrency, formatLatency, last30DaysRange } from "@/lib/format";
-import { useOptimizations, useProject, useProjectCost } from "@/lib/queries";
+import { useOptimizations, useProject, useProjectCost, useProjectMetrics } from "@/lib/queries";
 
 export default function OverviewPage() {
   const { id } = useParams<{ id: string }>();
@@ -16,6 +16,7 @@ export default function OverviewPage() {
   const { data: summaryBuckets } = useProjectCost(id, fromTs, toTs);
   const { data: dayBuckets } = useProjectCost(id, fromTs, toTs, "day");
   const { data: recommendations } = useOptimizations(id);
+  const { data: metrics } = useProjectMetrics(id, fromTs, toTs);
 
   const summary = summaryBuckets?.[0];
   const pendingCount = recommendations?.filter((r) => r.status === "pending").length ?? 0;
@@ -75,7 +76,7 @@ export default function OverviewPage() {
               input + output
             </div>
           </div>
-          <div className="flex-1 px-7">
+          <div className="flex-1 px-7 border-r border-(--outline-variant)">
             <div className="t-label mb-2.5" style={{ color: "var(--on-surface-variant)" }}>
               OPEN RECOMMENDATIONS
             </div>
@@ -91,6 +92,23 @@ export default function OverviewPage() {
                 none open
               </div>
             )}
+          </div>
+          <div className="flex-1 px-7">
+            <div className="t-label mb-2.5" style={{ color: "var(--on-surface-variant)" }}>
+              POTENTIAL SAVINGS · 30D
+            </div>
+            <div className="mono" style={{ fontSize: 26, fontWeight: 500, letterSpacing: "-0.3px" }}>
+              {metrics
+                ? `${formatCurrency(metrics.total_potential_savings_low, 2)}–${formatCurrency(
+                    metrics.total_potential_savings_high,
+                    2,
+                  )}`
+                : "—"}
+            </div>
+            <div className="t-body-sm mt-1.5" style={{ color: "var(--on-surface-variant)" }}>
+              across {metrics?.open_opportunity_count ?? 0} open opportunit
+              {metrics?.open_opportunity_count === 1 ? "y" : "ies"}
+            </div>
           </div>
         </Panel>
 

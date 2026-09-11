@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 from app.models.optimization import OptimizationRecommendation
 from app.models.project import Project
 from app.models.telemetry import LLMCall, RetrievalStep, Trace
-from app.services.rules import RuleEngine, WorkflowStats
+from app.services.rules import MIN_SAMPLE_SIZE, RuleEngine, WorkflowStats
+from app.services.rules.base import percentile
 
 # A recommendation is treated as a duplicate of a prior run - and skipped -
 # if a "pending" recommendation with the same
@@ -19,25 +20,37 @@ from app.services.rules import RuleEngine, WorkflowStats
 # meaningfully changed.
 DUPLICATE_WINDOW = timedelta(hours=1)
 
+# A trace whose total input tokens fall below this is treated as
+# "low-complexity" for Rule E's segmented-routing detection - a deliberately
+# crude proxy, not a real complexity classifier (see V2 design decisions).
+SIMPLE_COMPLEXITY_TOKEN_THRESHOLD = 500.0
+
 _rule_engine = RuleEngine()
 
 
-def _build_workflow_stats(
+def _per_trace_input_tokens(db: Session, trace_filter: list) -> dict[uuid.UUID, float]:
+    rows = (
+        db.query(LLMCall.trace_id, func.sum(LLMCall.input_tokens).label("total"))
+        .join(Trace, LLMCall.trace_id == Trace.id)
+        .filter(*trace_filter)
+        .group_by(LLMCall.trace_id)
+        .all()
+    )
+    return {row.trace_id: float(row.total or 0) for row in rows}
+
+
+def _build_stats_for_filter(
     db: Session,
     project_id: uuid.UUID,
     workflow: str | None,
     environment_id: uuid.UUID | None,
-    from_ts: datetime,
-    to_ts: datetime,
+    trace_filter: list,
+    window_days: float,
 ) -> WorkflowStats | None:
-    trace_filter = [
-        Trace.project_id == project_id,
-        Trace.timestamp >= from_ts,
-        Trace.timestamp <= to_ts,
-        Trace.workflow == workflow,
-        Trace.environment_id == environment_id,
-    ]
-
+    """Compute WorkflowStats for an arbitrary trace_filter - either the whole
+    workflow/environment group, or a further-restricted subset of it (e.g. a
+    complexity segment). Shared by _build_workflow_stats and
+    _build_segment_stats below."""
     trace_count = db.query(func.count(Trace.id)).filter(*trace_filter).scalar() or 0
     if trace_count == 0:
         return None
@@ -94,6 +107,9 @@ def _build_workflow_stats(
     )
     avg_top_k = float(retrieval_row.avg_top_k) if retrieval_row.avg_top_k is not None else None
 
+    per_trace_tokens = sorted(_per_trace_input_tokens(db, trace_filter).values())
+    p95_input_tokens = percentile(per_trace_tokens, 0.95) if per_trace_tokens else None
+
     return WorkflowStats(
         sample_project_id=project_id,
         workflow=workflow,
@@ -106,7 +122,75 @@ def _build_workflow_stats(
         avg_cost_per_trace=total_cost / trace_count,
         model_usage=model_usage,
         avg_calls_per_trace=call_count / trace_count,
+        p95_input_tokens=p95_input_tokens,
+        window_days=window_days,
     )
+
+
+def _build_workflow_stats(
+    db: Session,
+    project_id: uuid.UUID,
+    workflow: str | None,
+    environment_id: uuid.UUID | None,
+    from_ts: datetime,
+    to_ts: datetime,
+) -> WorkflowStats | None:
+    trace_filter = [
+        Trace.project_id == project_id,
+        Trace.timestamp >= from_ts,
+        Trace.timestamp <= to_ts,
+        Trace.workflow == workflow,
+        Trace.environment_id == environment_id,
+    ]
+    window_days = max((to_ts - from_ts).total_seconds() / 86400, 1 / 24)
+
+    stats = _build_stats_for_filter(
+        db, project_id, workflow, environment_id, trace_filter, window_days
+    )
+    if stats is None:
+        return None
+
+    stats.segments = _build_segment_stats(
+        db, project_id, workflow, environment_id, trace_filter, window_days
+    )
+    return stats
+
+
+def _build_segment_stats(
+    db: Session,
+    project_id: uuid.UUID,
+    workflow: str | None,
+    environment_id: uuid.UUID | None,
+    trace_filter: list,
+    window_days: float,
+) -> dict[str, WorkflowStats] | None:
+    """Split the group's traces into "simple" (below
+    SIMPLE_COMPLEXITY_TOKEN_THRESHOLD total input tokens) and "complex"
+    segments, and compute WorkflowStats for each - used only by Rule E.
+    Returns None when either segment doesn't meet MIN_SAMPLE_SIZE, since a
+    segmented recommendation needs enough traces on both sides to be
+    trustworthy."""
+    per_trace_tokens = _per_trace_input_tokens(db, trace_filter)
+    simple_ids = [
+        tid for tid, total in per_trace_tokens.items() if total < SIMPLE_COMPLEXITY_TOKEN_THRESHOLD
+    ]
+    complex_ids = [
+        tid
+        for tid, total in per_trace_tokens.items()
+        if total >= SIMPLE_COMPLEXITY_TOKEN_THRESHOLD
+    ]
+    if len(simple_ids) < MIN_SAMPLE_SIZE or len(complex_ids) < MIN_SAMPLE_SIZE:
+        return None
+
+    simple_stats = _build_stats_for_filter(
+        db, project_id, workflow, environment_id, [*trace_filter, Trace.id.in_(simple_ids)], window_days
+    )
+    complex_stats = _build_stats_for_filter(
+        db, project_id, workflow, environment_id, [*trace_filter, Trace.id.in_(complex_ids)], window_days
+    )
+    if simple_stats is None or complex_stats is None:
+        return None
+    return {"simple": simple_stats, "complex": complex_stats}
 
 
 def _is_duplicate(
@@ -169,6 +253,10 @@ def run_analysis(
                 estimated_cost_impact=recommendation.estimated_cost_impact,
                 required_experiment=recommendation.required_experiment,
                 confidence=recommendation.confidence,
+                confidence_bucket=recommendation.confidence_bucket,
+                evidence=recommendation.evidence,
+                estimated_savings_low=recommendation.estimated_savings_low,
+                estimated_savings_high=recommendation.estimated_savings_high,
                 status=recommendation.status,
             )
             db.add(row)

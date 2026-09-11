@@ -1,4 +1,10 @@
-from app.services.rules.base import MIN_SAMPLE_SIZE, Rule, RuleDetection, WorkflowStats
+from app.services.rules.base import (
+    MIN_SAMPLE_SIZE,
+    Rule,
+    RuleDetection,
+    WorkflowStats,
+    build_evidence,
+)
 
 # A prompt (excluding retrieved context) averaging above this many tokens,
 # repeated over a high volume of traces, suggests a large static/boilerplate
@@ -17,6 +23,11 @@ class PromptOptimizationRule(Rule):
         if non_retrieval_input_tokens <= LARGE_PROMPT_TOKEN_THRESHOLD:
             return None
 
+        next_step = (
+            "Audit the prompt template for boilerplate that can be "
+            "trimmed or moved to a cached prefix, then re-measure "
+            "average input tokens per call."
+        )
         return RuleDetection(
             rule_name="prompt_optimization",
             reason=(
@@ -28,11 +39,11 @@ class PromptOptimizationRule(Rule):
             current_config={"avg_prompt_tokens": round(non_retrieval_input_tokens)},
             proposed_config={"suggestion": "reduce prompt size or investigate prompt caching"},
             estimated_cost_impact="depends on achievable prompt reduction / cache hit rate",
-            required_experiment={
-                "description": (
-                    "Audit the prompt template for boilerplate that can be "
-                    "trimmed or moved to a cached prefix, then re-measure "
-                    "average input tokens per call."
-                )
-            },
+            required_experiment={"description": next_step},
+            evidence=build_evidence(
+                stats,
+                current_value={"avg_prompt_tokens": round(non_retrieval_input_tokens)},
+                recommended_next_step=next_step,
+                savings_fraction=None,
+            ),
         )

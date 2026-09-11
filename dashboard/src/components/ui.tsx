@@ -55,6 +55,33 @@ export function StatusDot({
   );
 }
 
+const CONFIDENCE_STYLES: Record<string, { bg: string; fg: string; label: string }> = {
+  high: { bg: "var(--success)", fg: "var(--surface)", label: "High confidence" },
+  medium: { bg: "var(--warning)", fg: "var(--surface)", label: "Medium confidence" },
+  low: { bg: "var(--surface-container-high)", fg: "var(--on-surface-variant)", label: "Low confidence" },
+};
+
+export function ConfidenceBadge({ bucket }: { bucket: string | null }) {
+  const style = CONFIDENCE_STYLES[bucket ?? "low"] ?? CONFIDENCE_STYLES.low;
+  return (
+    <span
+      className="t-label"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "3px 9px",
+        borderRadius: 999,
+        background: style.bg,
+        color: style.fg,
+        fontWeight: 600,
+        letterSpacing: 0.3,
+      }}
+    >
+      {style.label}
+    </span>
+  );
+}
+
 export function ConfigPill({
   highlight,
   children,

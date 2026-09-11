@@ -1,4 +1,4 @@
-from app.services.rules.base import Rule, RuleDetection, WorkflowStats
+from app.services.rules.base import Rule, RuleDetection, WorkflowStats, build_evidence
 
 # If retrieved-context tokens make up more than this share of the average
 # input prompt, the retrieval step is likely over-fetching.
@@ -22,6 +22,18 @@ class ExcessiveRetrievalContextRule(Rule):
         if proposed_top_k >= current_top_k:
             return None
 
+        next_step = (
+            "Re-run the workflow with reduced top_k and compare output "
+            "quality and cost against the current baseline."
+        )
+        savings_fraction = share * TOP_K_REDUCTION_FACTOR
+        evidence = build_evidence(
+            stats,
+            current_value={"top_k": current_top_k},
+            ratio=share,
+            recommended_next_step=next_step,
+            savings_fraction=savings_fraction,
+        )
         return RuleDetection(
             rule_name="excessive_retrieval_context",
             reason=(
@@ -31,11 +43,9 @@ class ExcessiveRetrievalContextRule(Rule):
             ),
             current_config={"top_k": current_top_k},
             proposed_config={"top_k": proposed_top_k},
-            estimated_cost_impact=f"~{share * TOP_K_REDUCTION_FACTOR:.0%} input-token reduction",
-            required_experiment={
-                "description": (
-                    "Re-run the workflow with reduced top_k and compare output "
-                    "quality and cost against the current baseline."
-                )
-            },
+            estimated_cost_impact=f"~{savings_fraction:.0%} input-token reduction",
+            required_experiment={"description": next_step},
+            evidence=evidence,
+            estimated_savings_low=evidence.get("estimated_savings_low"),
+            estimated_savings_high=evidence.get("estimated_savings_high"),
         )

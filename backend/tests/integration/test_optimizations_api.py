@@ -90,6 +90,36 @@ def test_analyze_creates_recommendation(client: TestClient, db_session: Session)
     assert recommendation["status"] == "pending"
     assert recommendation["proposed_config"]["top_k"] < recommendation["current_config"]["top_k"]
     assert 0.0 <= recommendation["confidence"] <= 1.0
+    assert recommendation["confidence_bucket"] in ("high", "medium", "low")
+    assert recommendation["evidence"] is not None
+    assert recommendation["evidence"]["quality_evidence"] == "not_yet_tested"
+    assert recommendation["estimated_savings_low"] is not None
+    assert recommendation["estimated_savings_high"] is not None
+
+
+def test_project_metrics_reflects_open_recommendations(
+    client: TestClient, db_session: Session
+) -> None:
+    project = _create_project(client, slug="metrics-endpoint-project")
+    _seed_excessive_retrieval_traces(db_session, project["id"])
+
+    analyze_response = client.post(
+        f"/projects/{project['id']}/optimizations/analyze",
+        json={"from_ts": FROM_TS, "to_ts": TO_TS},
+    )
+    assert analyze_response.status_code == 200
+    assert analyze_response.json()["recommendations_created"] >= 1
+
+    metrics_response = client.get(
+        f"/projects/{project['id']}/metrics",
+        params={"from_ts": FROM_TS, "to_ts": TO_TS},
+    )
+    assert metrics_response.status_code == 200
+    metrics = metrics_response.json()
+    assert metrics["total_spend"] > 0
+    assert metrics["open_opportunity_count"] >= 1
+    assert metrics["total_potential_savings_low"] >= 0
+    assert metrics["total_potential_savings_high"] >= metrics["total_potential_savings_low"]
 
 
 def test_list_optimizations(client: TestClient, db_session: Session) -> None:
