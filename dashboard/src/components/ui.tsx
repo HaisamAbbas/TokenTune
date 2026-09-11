@@ -65,6 +65,7 @@ export function ConfigPill({
   return (
     <span
       className="config-pill"
+      title={typeof children === "string" ? children : undefined}
       style={
         highlight
           ? { background: "var(--primary-container)", color: "var(--on-primary-container)" }

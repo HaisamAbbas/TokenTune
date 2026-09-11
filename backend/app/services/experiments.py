@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import random
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -25,11 +26,21 @@ logger = logging.getLogger(__name__)
 _DEFAULT_MODEL = "glm-4.5-flash"
 
 # Upper bound on concurrent in-flight /api/chat + judge calls per variant.
-# The sample app / litellm-proxy / judge LLM all have real (if generous)
-# rate/capacity limits, so we deliberately don't fire all N items at once -
-# 5 is a conservative bound that still gives a large speedup over strictly
-# sequential execution for typical eval datasets (tens of items).
-_MAX_CONCURRENT_ITEMS = 5
+# Originally 5; lowered to 2 after a real run against z.ai's free
+# glm-4.5-flash tier showed 5 concurrent items (each potentially retrying)
+# still saturated that tier's rate limit even with backoff. 2 is a
+# conservative bound for constrained/free providers - still faster than
+# strictly sequential, but a project on a higher-throughput provider/tier
+# may want this configurable in a later phase rather than hardcoded.
+_MAX_CONCURRENT_ITEMS = 2
+
+# A 429 from the underlying LLM provider (e.g. a free-tier model's rate
+# limit) is transient, not a real failure of the item - discovered when
+# _MAX_CONCURRENT_ITEMS's concurrency tripped z.ai's free glm-4.5-flash tier
+# rate limit during a real run. Retry a bounded number of times with
+# exponential backoff + jitter before giving up on the item.
+_RATE_LIMIT_MAX_RETRIES = 3
+_RATE_LIMIT_BASE_DELAY_SECONDS = 2.0
 
 
 @dataclass
@@ -115,45 +126,98 @@ async def _run_item(
     fully independent so one bad item can't cancel its siblings under
     `asyncio.gather`."""
     async with semaphore:
-        try:
-            start = time.perf_counter()
-            response = await client.post(
-                "/api/chat",
-                json={
-                    "model": _DEFAULT_MODEL,
-                    "messages": [{"role": "user", "content": item.question}],
-                    "config_override": config_override,
-                },
-            )
-            latency_ms = (time.perf_counter() - start) * 1000
-            response.raise_for_status()
-            body = response.json()
-            actual_answer = body.get("response", "")
-            usage = body.get("usage") or {}
-            input_tokens = int(usage.get("prompt_tokens", 0))
-            output_tokens = int(usage.get("completion_tokens", 0))
+        for attempt in range(_RATE_LIMIT_MAX_RETRIES + 1):
+            try:
+                start = time.perf_counter()
+                response = await client.post(
+                    "/api/chat",
+                    json={
+                        "model": _DEFAULT_MODEL,
+                        "messages": [{"role": "user", "content": item.question}],
+                        "config_override": config_override,
+                    },
+                )
+                latency_ms = (time.perf_counter() - start) * 1000
+                response.raise_for_status()
+                body = response.json()
+                actual_answer = body.get("response", "")
+                usage = body.get("usage") or {}
+                input_tokens = int(usage.get("prompt_tokens", 0))
+                output_tokens = int(usage.get("completion_tokens", 0))
 
-            quality_score = await evaluator.evaluate(
-                question=item.question,
-                expected_answer=item.expected_answer,
-                actual_answer=actual_answer,
-            )
+                quality_score = await evaluator.evaluate(
+                    question=item.question,
+                    expected_answer=item.expected_answer,
+                    actual_answer=actual_answer,
+                )
 
-            model_for_cost = config_override.get("model") or _DEFAULT_MODEL
-            cost = estimate_cost(model_for_cost, input_tokens, output_tokens)
+                model_for_cost = config_override.get("model") or _DEFAULT_MODEL
+                cost = estimate_cost(model_for_cost, input_tokens, output_tokens)
 
-            item_result = _ItemResult(
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                latency_ms=latency_ms,
-                quality_score=quality_score,
-            )
-            return item_result, float(cost) if cost is not None else 0.0
-        except (httpx.HTTPError, ValueError, KeyError) as exc:
-            # Don't let one bad question kill the whole run - record it and
-            # keep going, aggregating over whatever succeeded.
-            logger.warning("evaluation item failed: %r: %s", item.question, exc, exc_info=True)
-            return f"{item.question!r}: {exc}"
+                item_result = _ItemResult(
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    latency_ms=latency_ms,
+                    quality_score=quality_score,
+                )
+                return item_result, float(cost) if cost is not None else 0.0
+            except httpx.HTTPStatusError as exc:
+                # The sample app doesn't propagate the underlying provider's
+                # 429 as a 429 - an unhandled openai.RateLimitError inside
+                # its own request handler surfaces to us as a plain 500 (its
+                # default FastAPI exception handler), discovered for real
+                # under _MAX_CONCURRENT_ITEMS concurrency against z.ai's free
+                # glm-4.5-flash tier. Treat any 429 or 5xx from the sample
+                # app as transient and worth retrying, not just a literal 429.
+                is_transient = exc.response.status_code == 429 or exc.response.status_code >= 500
+                if is_transient and attempt < _RATE_LIMIT_MAX_RETRIES:
+                    delay = _RATE_LIMIT_BASE_DELAY_SECONDS * (2**attempt) + random.uniform(0, 1)
+                    logger.warning(
+                        "transient error (%d) on %r (attempt %d/%d), retrying in %.1fs",
+                        exc.response.status_code,
+                        item.question,
+                        attempt + 1,
+                        _RATE_LIMIT_MAX_RETRIES,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                logger.warning(
+                    "evaluation item failed: %r: %s", item.question, exc, exc_info=True
+                )
+                return f"{item.question!r}: {exc}"
+            except httpx.TimeoutException as exc:
+                # Discovered for real: under load (rate-limit retries piling
+                # up inside the sample app's own downstream call), our
+                # client-to-sample-app request itself can time out with no
+                # response at all - a different exception type than the
+                # HTTPStatusError case above (no response object exists), so
+                # it needs its own transient-retry branch.
+                if attempt < _RATE_LIMIT_MAX_RETRIES:
+                    delay = _RATE_LIMIT_BASE_DELAY_SECONDS * (2**attempt) + random.uniform(0, 1)
+                    logger.warning(
+                        "timeout on %r (attempt %d/%d), retrying in %.1fs",
+                        item.question,
+                        attempt + 1,
+                        _RATE_LIMIT_MAX_RETRIES,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                logger.warning(
+                    "evaluation item failed: %r: %s", item.question, exc, exc_info=True
+                )
+                return f"{item.question!r}: {exc}"
+            except (httpx.HTTPError, ValueError, KeyError) as exc:
+                # Don't let one bad question kill the whole run - record it
+                # and keep going, aggregating over whatever succeeded.
+                logger.warning(
+                    "evaluation item failed: %r: %s", item.question, exc, exc_info=True
+                )
+                return f"{item.question!r}: {exc}"
+        # Unreachable: the loop above always returns or continues, and the
+        # last iteration (attempt == _RATE_LIMIT_MAX_RETRIES) never continues.
+        raise AssertionError("unreachable")
 
 
 async def _run_variant(
@@ -245,7 +309,12 @@ async def run_experiment(
         raise ValueError(experiment.error)
 
     owns_client = _http_client is None
-    client = _http_client or httpx.AsyncClient(base_url=settings.sample_rag_app_url, timeout=60.0)
+    # 120s (not 60s): a real run showed the sample app's own downstream
+    # generation (plus any tool-calling loop) can legitimately take
+    # 30s+, and our own transient-error retries add further latency on
+    # top of that - 60s was tight enough to produce client-side timeouts
+    # that then got (correctly) retried, adding even more time.
+    client = _http_client or httpx.AsyncClient(base_url=settings.sample_rag_app_url, timeout=120.0)
     try:
         baseline_outcome, experiment_outcome = await asyncio.gather(
             _run_variant(client, evaluator, items, experiment.baseline_config),
@@ -282,6 +351,12 @@ async def run_experiment(
         experiment.error = "all evaluation items failed for a variant: " + "; ".join(all_failures)
     else:
         experiment.status = "completed"
+        # Clear any stale error from a previous failed attempt at this same
+        # experiment (e.g. a transient rate limit that a retry/re-run
+        # cleared up) - a completed experiment must never carry a leftover
+        # error message, discovered for real when re-running a previously
+        # failed experiment and seeing its old error text survive success.
+        experiment.error = None
 
     db.commit()
     db.refresh(baseline_row)

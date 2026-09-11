@@ -453,3 +453,123 @@ def test_concurrent_item_execution_produces_correct_aggregated_metrics(
     # concurrent execution should be meaningfully faster than the fully
     # sequential worst case.
     assert elapsed_seconds < fully_sequential_seconds * 0.6
+
+
+@pytest.mark.parametrize(
+    "status_code",
+    [
+        429,
+        # The real-world case: the sample app doesn't propagate the
+        # underlying provider's 429 as a 429 - an unhandled
+        # openai.RateLimitError inside its own request handler surfaces to
+        # us as a plain 500 via its default FastAPI exception handler. This
+        # is exactly what happened for real under _MAX_CONCURRENT_ITEMS
+        # concurrency against z.ai's free glm-4.5-flash tier.
+        500,
+    ],
+)
+def test_transient_rate_limit_is_retried_not_treated_as_a_failure(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch, status_code: int
+) -> None:
+    """A transient 429/5xx from the sample app is retried rather than
+    counted as a permanent item failure - see the _RATE_LIMIT_* constants in
+    app.services.experiments."""
+
+    # Avoid real sleeping in the test - the retry backoff would otherwise
+    # add several real seconds per retried item.
+    async def _no_sleep(seconds: float) -> None:
+        pass
+
+    monkeypatch.setattr(experiments_service.asyncio, "sleep", _no_sleep)
+
+    class _FakeTransientlyFailingOnceClient:
+        """The first call for each question fails transiently; the retry succeeds."""
+
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            self._seen_questions: set[str] = set()
+
+        async def post(self, url: str, json: dict) -> _FakeChatResponse:
+            question = json["messages"][0]["content"]
+            if question not in self._seen_questions:
+                self._seen_questions.add(question)
+                request = httpx.Request("POST", "http://sample-rag-app/api/chat")
+                response = httpx.Response(
+                    status_code,
+                    json={"error": {"message": "transient error"}},
+                    request=request,
+                )
+                raise httpx.HTTPStatusError("transient error", request=request, response=response)
+            return _FakeChatResponse(
+                {
+                    "response": "A plausible generated answer.",
+                    "usage": {"prompt_tokens": 500, "completion_tokens": 80, "total_tokens": 580},
+                }
+            )
+
+        async def aclose(self) -> None:
+            pass
+
+    monkeypatch.setattr(experiments_service.httpx, "AsyncClient", _FakeTransientlyFailingOnceClient)
+    monkeypatch.setattr(experiments_service, "AnswerCorrectnessEvaluator", lambda: _FakeEvaluator())
+
+    project = _create_project(client, slug=f"rate-limit-retry-project-{status_code}")
+    dataset = _import_dataset(client, project["id"])["dataset"]
+
+    create_response = client.post(
+        f"/projects/{project['id']}/experiments",
+        json={
+            "name": "rate limit retry",
+            "baseline_config": {},
+            "experiment_config": {"top_k": 4},
+            "evaluation_dataset_id": dataset["id"],
+        },
+    )
+    experiment_id = create_response.json()["id"]
+
+    run_response = client.post(f"/projects/{project['id']}/experiments/{experiment_id}/run")
+
+    assert run_response.status_code == 200
+    body = run_response.json()
+    assert body["failed_questions"] == []
+    assert body["baseline_run"]["metrics"]["request_count"] == 2
+    assert body["experiment_run"]["metrics"]["request_count"] == 2
+
+
+def test_stale_error_is_cleared_after_a_successful_retry(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Discovered for real: re-running a previously failed experiment (e.g.
+    after a transient rate limit clears up) must not leave the old failure's
+    `error` text on a now-`completed` experiment."""
+    monkeypatch.setattr(experiments_service.httpx, "AsyncClient", _FakeVariantFailingClient)
+    monkeypatch.setattr(experiments_service, "AnswerCorrectnessEvaluator", lambda: _FakeEvaluator())
+
+    project = _create_project(client, slug="stale-error-project")
+    dataset = _import_dataset(client, project["id"])["dataset"]
+
+    create_response = client.post(
+        f"/projects/{project['id']}/experiments",
+        json={
+            "name": "flaky then fixed",
+            "baseline_config": {},
+            "experiment_config": {"model": _FakeVariantFailingClient.FAILING_MODEL},
+            "evaluation_dataset_id": dataset["id"],
+        },
+    )
+    experiment_id = create_response.json()["id"]
+
+    first_run = client.post(f"/projects/{project['id']}/experiments/{experiment_id}/run")
+    assert first_run.status_code in (422, 409)
+    failed_body = client.get(f"/projects/{project['id']}/experiments/{experiment_id}").json()
+    assert failed_body["status"] == "failed"
+    assert failed_body["error"]
+
+    # The underlying problem clears up (here: simulated by swapping back to
+    # a working client) and the same experiment is retried.
+    monkeypatch.setattr(experiments_service.httpx, "AsyncClient", _FakeChatClient)
+    second_run = client.post(f"/projects/{project['id']}/experiments/{experiment_id}/run")
+    assert second_run.status_code == 200
+
+    completed_body = client.get(f"/projects/{project['id']}/experiments/{experiment_id}").json()
+    assert completed_body["status"] == "completed"
+    assert completed_body["error"] is None
