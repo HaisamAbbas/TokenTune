@@ -101,10 +101,15 @@ GET    /projects/{id}/experiments/{id}                   get one, including its 
   see `docs/adr/0004`), an Answer Correctness LLM-judge evaluator, real
   cost/quality/latency/token comparison, and the adopt/reject workflow
   (gated on a completed experiment).
+- **Phase 6** — `dashboard/`, a Next.js (App Router, TypeScript) frontend over
+  the full API surface above: project overview (KPI strip + cost-over-time
+  chart + recent recommendations), a fuller cost breakdown view, the
+  optimizations list (filter/run-analysis/reject/create-experiment), the
+  experiment comparison view (run/adopt/reject), and evaluation dataset
+  import — restyled shadcn/ui + Tailwind + Recharts against an approved
+  design (oklch light/dark tokens, pill buttons, status-dot pattern).
 
 Not yet built, out of scope for V1 per the original spec:
-- Next.js dashboard (backend is fully functional and API-complete; frontend
-  is deliberately deferred to a later, separately-planned phase)
 - Additional evaluators (faithfulness, context relevance) — the evaluation
   abstraction supports adding them, only Answer Correctness is implemented
 - Live Langfuse instance integration (built and tested against the real API
