@@ -21,6 +21,10 @@ function railItems(projectId: string) {
   ];
 }
 
+function settingsHref(projectId: string) {
+  return `/projects/${projectId}/settings`;
+}
+
 export function NavRail({ projectId }: { projectId: string }) {
   const pathname = usePathname();
   const items = railItems(projectId);
@@ -55,11 +59,11 @@ export function NavRail({ projectId }: { projectId: string }) {
       })}
 
       <div className="flex-1" />
-      <div className="rail-item">
-        <div className="rail-indicator">
+      <Link href={settingsHref(projectId)} className="rail-item">
+        <div className={`rail-indicator${pathname === settingsHref(projectId) ? " active" : ""}`}>
           <SettingsIcon />
         </div>
-      </div>
+      </Link>
     </div>
   );
 }

@@ -21,6 +21,13 @@ class Project(Base):
 
     environments: Mapped[list["Environment"]] = relationship(back_populates="project")
 
+    @property
+    def langfuse_configured(self) -> bool:
+        """Whether both Langfuse keys are set - exposed via ProjectRead so
+        the settings page can show configuration status without ever
+        serializing the actual secret value back out."""
+        return bool(self.langfuse_public_key and self.langfuse_secret_key)
+
 
 class Environment(Base):
     __tablename__ = "environments"

@@ -154,6 +154,9 @@ def test_project_response_never_leaks_langfuse_keys(client: TestClient) -> None:
     project = _create_project(client)
     assert "langfuse_public_key" not in project
     assert "langfuse_secret_key" not in project
+    # _create_project sets both keys - configured must be True, but the
+    # actual values must never appear anywhere above.
+    assert project["langfuse_configured"] is True
 
     get_response = client.get(f"/projects/{project['id']}")
     body = get_response.json()
@@ -163,4 +166,35 @@ def test_project_response_never_leaks_langfuse_keys(client: TestClient) -> None:
     list_response = client.get("/projects")
     for item in list_response.json():
         assert "langfuse_public_key" not in item
-        assert "langfuse_secret_key" not in item
+
+
+def test_project_settings_update_sets_keys_without_leaking_them(client: TestClient) -> None:
+    project = _create_project(client)
+
+    patch_response = client.patch(
+        f"/projects/{project['id']}",
+        json={"langfuse_public_key": "pk-real", "langfuse_secret_key": "sk-real"},
+    )
+    assert patch_response.status_code == 200
+    body = patch_response.json()
+    assert body["langfuse_configured"] is True
+    assert "langfuse_public_key" not in body
+    assert "langfuse_secret_key" not in body
+
+    get_response = client.get(f"/projects/{project['id']}")
+    assert get_response.json()["langfuse_configured"] is True
+
+
+def test_project_settings_update_only_touches_provided_fields(client: TestClient) -> None:
+    project = _create_project(client)
+
+    client.patch(f"/projects/{project['id']}", json={"name": "Renamed Project"})
+
+    get_response = client.get(f"/projects/{project['id']}")
+    body = get_response.json()
+    assert body["name"] == "Renamed Project"
+    assert body["slug"] == project["slug"]
+    # langfuse_configured must stay exactly as it was (True, since
+    # _create_project sets both keys) - the request never mentioned the
+    # Langfuse fields at all, so exclude_unset must leave them untouched.
+    assert body["langfuse_configured"] is True

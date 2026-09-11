@@ -5,6 +5,13 @@ export interface Project {
   name: string;
   slug: string;
   created_at: string;
+  langfuse_configured: boolean;
+}
+
+export interface ProjectUpdate {
+  name?: string;
+  langfuse_public_key?: string;
+  langfuse_secret_key?: string;
 }
 
 export type GroupBy = "day" | "model" | "workflow";

@@ -26,7 +26,7 @@ from app.schemas.optimization import (
     OptimizationRecommendationRead,
     OptimizationRecommendationStatusUpdate,
 )
-from app.schemas.project import ProjectCreate, ProjectRead
+from app.schemas.project import ProjectCreate, ProjectRead, ProjectUpdate
 from app.schemas.telemetry import (
     CostBucket,
     GroupBy,
@@ -68,6 +68,18 @@ def get_project(project_id: uuid.UUID, db: Session = Depends(get_db)) -> Project
     project = db.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="project not found")
+    return project
+
+
+@router.patch("/{project_id}", response_model=ProjectRead)
+def update_project(
+    project_id: uuid.UUID, payload: ProjectUpdate, db: Session = Depends(get_db)
+) -> Project:
+    project = _get_project_or_404(project_id, db)
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(project, field, value)
+    db.commit()
+    db.refresh(project)
     return project
 
 

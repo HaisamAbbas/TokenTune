@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as api from "./api";
-import type { GroupBy, RecommendationStatus } from "./types";
+import type { GroupBy, ProjectUpdate, RecommendationStatus } from "./types";
 
 export function useProjects() {
   return useQuery({ queryKey: ["projects"], queryFn: api.listProjects });
@@ -8,6 +8,17 @@ export function useProjects() {
 
 export function useProject(id: string) {
   return useQuery({ queryKey: ["projects", id], queryFn: () => api.getProject(id) });
+}
+
+export function useUpdateProject(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: ProjectUpdate) => api.updateProject(id, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects", id] });
+      qc.invalidateQueries({ queryKey: ["projects"] });
+    },
+  });
 }
 
 export function useProjectCost(

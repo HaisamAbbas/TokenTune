@@ -49,7 +49,9 @@ export function NavRailGlobal() {
       ))}
 
       <div className="flex-1" />
-      <div className="rail-item">
+      {/* Settings is per-project (Langfuse keys, appearance) - no project is
+          selected here, so this stays visibly inert rather than a dead link. */}
+      <div className="rail-item" style={{ cursor: "default", opacity: 0.45 }}>
         <div className="rail-indicator">
           <SettingsIcon />
         </div>

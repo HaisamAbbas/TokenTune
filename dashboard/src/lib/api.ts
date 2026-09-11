@@ -10,6 +10,7 @@ import type {
   GroupBy,
   OptimizationRecommendation,
   Project,
+  ProjectUpdate,
   RecommendationStatus,
 } from "./types";
 
@@ -52,6 +53,8 @@ export const listProjects = () => request<Project[]>("/projects");
 export const getProject = (id: string) => request<Project>(`/projects/${id}`);
 export const createProject = (payload: { name: string; slug: string }) =>
   request<Project>("/projects", { method: "POST", body: JSON.stringify(payload) });
+export const updateProject = (id: string, payload: ProjectUpdate) =>
+  request<Project>(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
 
 // Cost
 
