@@ -23,8 +23,11 @@ export default function ExperimentDetailPage() {
   const runExperiment = useRunExperiment(id, experimentId);
   const updateStatus = useUpdateOptimizationStatus(id);
 
-  const baselineRun = runs?.find((r) => r.variant === "baseline");
-  const experimentRun = runs?.find((r) => r.variant === "experiment");
+  // `runs` is ordered oldest-first (an experiment can be retried after a
+  // failure, accumulating rows rather than replacing them) - the most
+  // recent attempt per variant is the last match, not the first.
+  const baselineRun = runs?.filter((r) => r.variant === "baseline").at(-1);
+  const experimentRun = runs?.filter((r) => r.variant === "experiment").at(-1);
 
   const comparison = useMemo(() => {
     if (!baselineRun || !experimentRun) return null;

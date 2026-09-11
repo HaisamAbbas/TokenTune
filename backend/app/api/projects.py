@@ -311,6 +311,18 @@ def get_project_experiment(
 def list_project_experiment_runs(
     project_id: uuid.UUID, experiment_id: uuid.UUID, db: Session = Depends(get_db)
 ) -> list[ExperimentRun]:
+    """Ordered oldest-first by `completed_at` - an experiment can be run
+    more than once (e.g. retried after a transient failure), so each run
+    accumulates new rows rather than replacing old ones. Callers wanting
+    "the current result" must take the LAST matching row per variant, not
+    the first - discovered for real when the dashboard's `.find()` (first
+    match) kept showing a stale failed/empty run after a later retry
+    actually succeeded."""
     _get_project_or_404(project_id, db)
     experiment = _get_experiment_or_404(project_id, experiment_id, db)
-    return db.query(ExperimentRun).filter(ExperimentRun.experiment_id == experiment.id).all()
+    return (
+        db.query(ExperimentRun)
+        .filter(ExperimentRun.experiment_id == experiment.id)
+        .order_by(ExperimentRun.completed_at.asc())
+        .all()
+    )

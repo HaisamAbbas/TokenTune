@@ -573,3 +573,47 @@ def test_stale_error_is_cleared_after_a_successful_retry(
     completed_body = client.get(f"/projects/{project['id']}/experiments/{experiment_id}").json()
     assert completed_body["status"] == "completed"
     assert completed_body["error"] is None
+
+
+def test_runs_endpoint_is_ordered_oldest_first_so_latest_is_last(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Discovered for real: the dashboard picked the FIRST matching run per
+    variant (`.find()`), which after a failed run followed by a successful
+    retry showed the stale, empty, failed run instead of the real result.
+    `GET .../runs` must return rows oldest-first so callers can reliably
+    take the last match per variant as "the current result"."""
+    monkeypatch.setattr(experiments_service.httpx, "AsyncClient", _FakeVariantFailingClient)
+    monkeypatch.setattr(experiments_service, "AnswerCorrectnessEvaluator", lambda: _FakeEvaluator())
+
+    project = _create_project(client, slug="runs-ordering-project")
+    dataset = _import_dataset(client, project["id"])["dataset"]
+
+    create_response = client.post(
+        f"/projects/{project['id']}/experiments",
+        json={
+            "name": "flaky then fixed",
+            "baseline_config": {},
+            "experiment_config": {"model": _FakeVariantFailingClient.FAILING_MODEL},
+            "evaluation_dataset_id": dataset["id"],
+        },
+    )
+    experiment_id = create_response.json()["id"]
+
+    first_run = client.post(f"/projects/{project['id']}/experiments/{experiment_id}/run")
+    assert first_run.status_code in (422, 409)
+
+    monkeypatch.setattr(experiments_service.httpx, "AsyncClient", _FakeChatClient)
+    second_run = client.post(f"/projects/{project['id']}/experiments/{experiment_id}/run")
+    assert second_run.status_code == 200
+
+    runs = client.get(f"/projects/{project['id']}/experiments/{experiment_id}/runs").json()
+    assert len(runs) == 4  # 2 variants x 2 attempts
+
+    latest_baseline = [r for r in runs if r["variant"] == "baseline"][-1]
+    latest_experiment = [r for r in runs if r["variant"] == "experiment"][-1]
+    # The first attempt's experiment variant fully failed -> request_count
+    # 0; the second (successful) attempt's real request_count is 2. The
+    # LAST matching row per variant must be the successful one.
+    assert latest_baseline["metrics"]["request_count"] == 2
+    assert latest_experiment["metrics"]["request_count"] == 2
